@@ -162,7 +162,7 @@ create trigger on_auth_user_created
 
 -- Vista agregada: estadísticas por usuario y categoría
 create or replace view public.metricas_usuario_categoria
-with (security_invoker = true) as
+security_invoker as
 select
   r.usuario_id,
   e.categoria,
@@ -177,7 +177,7 @@ group by 1, 2;
 
 -- Vista: sesiones con métricas derivadas
 create or replace view public.sesiones_con_metricas
-with (security_invoker = true) as
+security_invoker as
 select
   s.id,
   s.usuario_id,
