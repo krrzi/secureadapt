@@ -48,12 +48,12 @@ export function Navbar({ profile }: NavbarProps) {
     ...(isAdmin
       ? [
           {
-            href: '/admin/escenarios',
+            href: '/escenarios',
             label: 'Escenarios',
             icon: <Settings className="w-4 h-4" />,
           },
           {
-            href: '/admin/metricas',
+            href: '/metricas',
             label: 'Métricas',
             icon: <BarChart3 className="w-4 h-4" />,
           },
