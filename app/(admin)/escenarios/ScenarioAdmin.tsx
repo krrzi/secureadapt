@@ -9,21 +9,30 @@ import {
   Loader2,
   CheckCircle2,
   AlertTriangle,
-  AlertCircle,
   Mail,
   Phone,
+  MessageSquare,
   Package,
   Search,
   Filter,
+  ExternalLink,
+  BookOpen,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import {
   getCategoryMeta,
+  getVectorMeta,
   getDifficultyMeta,
+  CATEGORIAS,
+  VECTORES_PSICOLOGICOS,
+  DIFICULTADES,
 } from '@/lib/adaptive-engine';
 import type {
   Escenario,
   Categoria,
+  VectorPsicologico,
   Dificultad,
 } from '@/lib/types';
 
@@ -31,9 +40,12 @@ type EscenarioForm = {
   titulo: string;
   contenido: string;
   categoria: Categoria;
+  vector_psicologico: VectorPsicologico;
   dificultad: Dificultad;
   es_ataque: boolean;
   explicacion: string;
+  fuente: string;
+  fuente_url: string;
   activo: boolean;
 };
 
@@ -41,29 +53,14 @@ const EMPTY_FORM: EscenarioForm = {
   titulo: '',
   contenido: '',
   categoria: 'phishing',
+  vector_psicologico: 'urgencia',
   dificultad: 'bajo',
   es_ataque: true,
   explicacion: '',
+  fuente: '',
+  fuente_url: '',
   activo: true,
 };
-
-function CategoryBadge({ categoria }: { categoria: Categoria }) {
-  const meta = getCategoryMeta(categoria);
-  const I = {
-    phishing: Mail,
-    pretexting: AlertTriangle,
-    baiting: Package,
-    vishing: Phone,
-  }[categoria];
-  return (
-    <span
-      className={`badge ${meta.bg} ${meta.color} flex items-center gap-1 w-fit`}
-    >
-      <I className="w-3.5 h-3.5" />
-      {meta.label}
-    </span>
-  );
-}
 
 export function ScenarioAdmin({
   initialEscenarios,
@@ -74,277 +71,432 @@ export function ScenarioAdmin({
   const [escenarios, setEscenarios] = useState<Escenario[]>(initialEscenarios);
   const [search, setSearch] = useState('');
   const [filterCat, setFilterCat] = useState<'all' | Categoria>('all');
+  const [filterVec, setFilterVec] = useState<'all' | VectorPsicologico>('all');
+  const [filterDiff, setFilterDiff] = useState<'all' | Dificultad>('all');
+  const [filterTipo, setFilterTipo] = useState<'all' | 'ataque' | 'legitimo'>('all');
+
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<EscenarioForm>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<
-    | null
-    | { type: 'success' | 'error'; msg: string }
+    null | { type: 'success' | 'error'; msg: string }
   >(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!toast) return;
-    const t = setTimeout(() => setToast(null), 3200);
+    const t = setTimeout(() => setToast(null), 3500);
     return () => clearTimeout(t);
   }, [toast]);
 
+  // Filtrado de escenarios
   const filtered = escenarios.filter((e) => {
     if (filterCat !== 'all' && e.categoria !== filterCat) return false;
+    if (filterVec !== 'all' && e.vector_psicologico !== filterVec) return false;
+    if (filterDiff !== 'all' && e.dificultad !== filterDiff) return false;
+    if (filterTipo === 'ataque' && !e.es_ataque) return false;
+    if (filterTipo === 'legitimo' && e.es_ataque) return false;
+
     if (!search.trim()) return true;
     const s = search.toLowerCase();
     return (
       e.titulo.toLowerCase().includes(s) ||
       e.contenido.toLowerCase().includes(s) ||
-      e.explicacion.toLowerCase().includes(s)
+      e.explicacion.toLowerCase().includes(s) ||
+      (e.fuente && e.fuente.toLowerCase().includes(s))
     );
   });
 
-  const stats = {
-    total: escenarios.length,
-    activos: escenarios.filter((e) => e.activo).length,
-    ataques: escenarios.filter((e) => e.es_ataque).length,
-  };
-
-  function openCreate() {
+  const handleOpenCreate = () => {
     setEditingId(null);
     setForm(EMPTY_FORM);
     setModalOpen(true);
-  }
+  };
 
-  function openEdit(e: Escenario) {
-    setEditingId(e.id);
+  const handleOpenEdit = (esc: Escenario) => {
+    setEditingId(esc.id);
     setForm({
-      titulo: e.titulo,
-      contenido: e.contenido,
-      categoria: e.categoria,
-      dificultad: e.dificultad,
-      es_ataque: e.es_ataque,
-      explicacion: e.explicacion,
-      activo: e.activo,
+      titulo: esc.titulo,
+      contenido: esc.contenido,
+      categoria: esc.categoria,
+      vector_psicologico: esc.vector_psicologico ?? 'urgencia',
+      dificultad: esc.dificultad,
+      es_ataque: esc.es_ataque,
+      explicacion: esc.explicacion,
+      fuente: esc.fuente ?? '',
+      fuente_url: esc.fuente_url ?? '',
+      activo: esc.activo,
     });
     setModalOpen(true);
-  }
+  };
 
-  async function handleSubmit() {
-    if (!form.titulo.trim() || !form.contenido.trim() || !form.explicacion.trim()) {
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    // Validación obligatoria: si es ataque, debe tener fuente documentada
+    if (form.es_ataque && !form.fuente.trim()) {
       setToast({
         type: 'error',
-        msg: 'Faltan campos obligatorios (título, contenido, explicación).',
+        msg: 'Validación obligatoria: Todo escenario de ataque debe contar con su fuente real documentada.',
       });
       return;
     }
+
     setSaving(true);
     try {
+      const payload = {
+        titulo: form.titulo.trim(),
+        contenido: form.contenido.trim(),
+        categoria: form.categoria,
+        vector_psicologico: form.vector_psicologico,
+        dificultad: form.dificultad,
+        es_ataque: form.es_ataque,
+        explicacion: form.explicacion.trim(),
+        fuente: form.fuente.trim() || null,
+        fuente_url: form.fuente_url.trim() || null,
+        activo: form.activo,
+      };
+
       if (editingId) {
-        const { error } = await supabase
-          .from('escenarios')
-          .update(form)
-          .eq('id', editingId);
-        if (error) throw error;
-        setEscenarios((prev) =>
-          prev.map((p) =>
-            p.id === editingId ? ({ ...p, ...form } as Escenario) : p
-          )
-        );
-        setToast({ type: 'success', msg: 'Escenario actualizado correctamente' });
-      } else {
+        // Update
         const { data, error } = await supabase
           .from('escenarios')
-          .insert([form])
+          .update(payload)
+          .eq('id', editingId)
           .select()
-          .single<Escenario>();
+          .single();
+
         if (error) throw error;
-        if (data) setEscenarios((prev) => [data, ...prev]);
-        setToast({ type: 'success', msg: 'Escenario creado correctamente' });
+        setEscenarios((prev) =>
+          prev.map((item) => (item.id === editingId ? (data as Escenario) : item))
+        );
+        setToast({ type: 'success', msg: 'Escenario actualizado con éxito.' });
+      } else {
+        // Create
+        const { data, error } = await supabase
+          .from('escenarios')
+          .insert(payload)
+          .select()
+          .single();
+
+        if (error) throw error;
+        setEscenarios((prev) => [data as Escenario, ...prev]);
+        setToast({ type: 'success', msg: 'Escenario real creado con éxito.' });
       }
+
       setModalOpen(false);
     } catch (err: any) {
       setToast({
         type: 'error',
-        msg: err?.message ?? 'Error al guardar. Verifica RLS (solo admin puede editar).',
+        msg: err.message ?? 'Error al guardar el escenario.',
       });
     } finally {
       setSaving(false);
     }
-  }
+  };
 
-  async function handleDelete(id: string, hardDelete: boolean) {
+  const handleDelete = async (id: string) => {
     try {
-      if (hardDelete) {
-        const { error } = await supabase
-          .from('escenarios')
-          .delete()
-          .eq('id', id);
-        if (error) throw error;
-        setEscenarios((prev) => prev.filter((p) => p.id !== id));
-        setToast({ type: 'success', msg: 'Escenario eliminado definitivamente' });
-      } else {
-        const { error } = await supabase
-          .from('escenarios')
-          .update({ activo: false })
-          .eq('id', id);
-        if (error) throw error;
-        setEscenarios((prev) =>
-          prev.map((p) =>
-            p.id === id ? ({ ...p, activo: false } as Escenario) : p
-          )
-        );
-        setToast({ type: 'success', msg: 'Escenario desactivado (soft delete)' });
-      }
+      const { error } = await supabase.from('escenarios').delete().eq('id', id);
+      if (error) throw error;
+
+      setEscenarios((prev) => prev.filter((item) => item.id !== id));
+      setToast({ type: 'success', msg: 'Escenario eliminado correctamente.' });
     } catch (err: any) {
-      setToast({ type: 'error', msg: err?.message ?? 'Error al eliminar' });
+      setToast({
+        type: 'error',
+        msg: err.message ?? 'Error al eliminar el escenario.',
+      });
     } finally {
       setConfirmDeleteId(null);
     }
-  }
+  };
+
+  const handleToggleActivo = async (esc: Escenario) => {
+    try {
+      const { error } = await supabase
+        .from('escenarios')
+        .update({ activo: !esc.activo })
+        .eq('id', esc.id);
+
+      if (error) throw error;
+      setEscenarios((prev) =>
+        prev.map((item) =>
+          item.id === esc.id ? { ...item, activo: !esc.activo } : item
+        )
+      );
+    } catch (err: any) {
+      setToast({ type: 'error', msg: err.message ?? 'Error al actualizar estado.' });
+    }
+  };
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-6 pb-16">
+      {/* Toast Notification */}
+      {toast && (
+        <div
+          className={`fixed bottom-6 right-6 z-50 p-4 rounded-2xl shadow-xl flex items-center gap-3 border text-sm font-semibold animate-slide-up ${
+            toast.type === 'success'
+              ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+              : 'bg-rose-50 border-rose-200 text-rose-900'
+          }`}
+        >
+          {toast.type === 'success' ? (
+            <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+          ) : (
+            <AlertTriangle className="w-5 h-5 text-rose-600" />
+          )}
+          <span>{toast.msg}</span>
+        </div>
+      )}
+
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="section-title">Gestión de escenarios</h1>
-          <p className="section-subtitle">
-            {stats.total} escenarios · {stats.activos} activos · {stats.ataques} marcados como ataque
+          <h1 className="text-2xl sm:text-3xl font-black text-surface-900 tracking-tight">
+            Gestión del Banco de Escenarios
+          </h1>
+          <p className="text-xs sm:text-sm text-surface-500 mt-1">
+            Administración de casos documentados con categorización bidimensional y fuentes oficiales.
           </p>
         </div>
-        <button onClick={openCreate} className="btn-primary">
+        <button
+          onClick={handleOpenCreate}
+          className="btn-primary flex items-center gap-2 shadow-md shadow-brand-600/20 py-2.5 px-4 rounded-xl"
+        >
           <Plus className="w-4 h-4" />
-          Nuevo escenario
+          <span>Nuevo Escenario Real</span>
         </button>
       </div>
 
-      {/* Stats mini */}
-      <div className="grid grid-cols-3 gap-3">
-        <div className="card p-4">
-          <p className="text-xs text-surface-400 font-medium">Totales</p>
-          <p className="text-2xl font-black text-surface-900 mt-1">
-            {stats.total}
-          </p>
+      {/* Filtros y Búsqueda */}
+      <div className="card p-5 border-surface-200 space-y-4">
+        <div className="flex flex-col sm:flex-row gap-3">
+          <div className="relative flex-1">
+            <Search className="w-4 h-4 text-surface-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              placeholder="Buscar por título, técnica, explicación o fuente..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="input pl-10 text-xs sm:text-sm"
+            />
+          </div>
         </div>
-        <div className="card p-4">
-          <p className="text-xs text-surface-400 font-medium">Activos</p>
-          <p className="text-2xl font-black text-success-600 mt-1">
-            {stats.activos}
-          </p>
+
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1">
+          {/* Canal */}
+          <div>
+            <label className="text-[10px] font-bold text-surface-500 uppercase tracking-wider block mb-1">
+              Canal / Categoría
+            </label>
+            <select
+              value={filterCat}
+              onChange={(e) => setFilterCat(e.target.value as any)}
+              className="input text-xs py-1.5"
+            >
+              <option value="all">Todas las categorías</option>
+              {CATEGORIAS.map((cat) => (
+                <option key={cat} value={cat}>
+                  {getCategoryMeta(cat).label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Vector */}
+          <div>
+            <label className="text-[10px] font-bold text-surface-500 uppercase tracking-wider block mb-1">
+              Vector Psicológico
+            </label>
+            <select
+              value={filterVec}
+              onChange={(e) => setFilterVec(e.target.value as any)}
+              className="input text-xs py-1.5"
+            >
+              <option value="all">Todos los vectores</option>
+              {VECTORES_PSICOLOGICOS.map((vec) => (
+                <option key={vec} value={vec}>
+                  {getVectorMeta(vec).label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Dificultad */}
+          <div>
+            <label className="text-[10px] font-bold text-surface-500 uppercase tracking-wider block mb-1">
+              Dificultad
+            </label>
+            <select
+              value={filterDiff}
+              onChange={(e) => setFilterDiff(e.target.value as any)}
+              className="input text-xs py-1.5"
+            >
+              <option value="all">Todas las dificultades</option>
+              {DIFICULTADES.map((d) => (
+                <option key={d} value={d}>
+                  {getDifficultyMeta(d).label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Tipo */}
+          <div>
+            <label className="text-[10px] font-bold text-surface-500 uppercase tracking-wider block mb-1">
+              Tipo de Caso
+            </label>
+            <select
+              value={filterTipo}
+              onChange={(e) => setFilterTipo(e.target.value as any)}
+              className="input text-xs py-1.5"
+            >
+              <option value="all">Todos los tipos</option>
+              <option value="ataque">Ataque Real</option>
+              <option value="legitimo">Control Legítimo</option>
+            </select>
+          </div>
         </div>
-        <div className="card p-4">
-          <p className="text-xs text-surface-400 font-medium">Ataques</p>
-          <p className="text-2xl font-black text-danger-600 mt-1">
-            {stats.ataques}
-          </p>
+
+        <div className="flex items-center justify-between text-xs text-surface-500 pt-2 border-t border-surface-100">
+          <span>Mostrando {filtered.length} de {escenarios.length} escenarios en total</span>
+          {(filterCat !== 'all' || filterVec !== 'all' || filterDiff !== 'all' || filterTipo !== 'all' || search) && (
+            <button
+              onClick={() => {
+                setFilterCat('all');
+                setFilterVec('all');
+                setFilterDiff('all');
+                setFilterTipo('all');
+                setSearch('');
+              }}
+              className="text-brand-600 hover:text-brand-800 font-bold"
+            >
+              Restablecer filtros
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Filtros */}
-      <div className="card p-4 flex flex-col sm:flex-row gap-3">
-        <div className="relative flex-1">
-          <Search className="w-4 h-4 text-surface-400 absolute left-3 top-1/2 -translate-y-1/2" />
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Buscar por título, contenido o explicación…"
-            className="input pl-9"
-          />
-        </div>
-        <div className="flex items-center gap-2">
-          <Filter className="w-4 h-4 text-surface-400" />
-          <select
-            value={filterCat}
-            onChange={(e) => setFilterCat(e.target.value as 'all' | Categoria)}
-            className="input w-auto sm:w-40"
-          >
-            <option value="all">Todas</option>
-            <option value="phishing">Phishing</option>
-            <option value="pretexting">Pretexting</option>
-            <option value="baiting">Baiting</option>
-            <option value="vishing">Vishing</option>
-          </select>
-        </div>
-      </div>
-
-      {/* Tabla */}
-      <div className="card overflow-hidden">
+      {/* Tabla de Escenarios */}
+      <div className="card overflow-hidden border-surface-200">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-surface-50 text-surface-500 text-xs uppercase tracking-wide">
+          <table className="w-full text-left text-xs sm:text-sm">
+            <thead className="bg-surface-50 border-b border-surface-200 text-surface-600 text-[11px] font-bold uppercase tracking-wider">
               <tr>
-                <th className="text-left py-3 px-4 font-semibold">Título</th>
-                <th className="text-left py-3 px-3 font-semibold">Categoría</th>
-                <th className="text-left py-3 px-3 font-semibold">Dificultad</th>
-                <th className="text-center py-3 px-3 font-semibold">Ataque</th>
-                <th className="text-center py-3 px-3 font-semibold">Activo</th>
-                <th className="text-right py-3 px-4 font-semibold">Acciones</th>
+                <th className="p-4">Escenario</th>
+                <th className="p-4">Canal & Vector</th>
+                <th className="p-4">Nivel</th>
+                <th className="p-4">Tipo</th>
+                <th className="p-4">Fuente Real</th>
+                <th className="p-4">Estado</th>
+                <th className="p-4 text-right">Acciones</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-surface-100">
-              {filtered.length === 0 && (
-                <tr>
-                  <td colSpan={6} className="py-12 text-center text-surface-400">
-                    No hay escenarios para estos filtros.
-                  </td>
-                </tr>
-              )}
-              {filtered.map((e) => {
-                const dMeta = getDifficultyMeta(e.dificultad);
+            <tbody className="divide-y divide-surface-200">
+              {filtered.map((esc) => {
+                const catMeta = getCategoryMeta(esc.categoria);
+                const vecMeta = getVectorMeta(esc.vector_psicologico);
+                const diffMeta = getDifficultyMeta(esc.dificultad);
+
                 return (
-                  <tr
-                    key={e.id}
-                    className={`hover:bg-surface-50 transition-colors ${
-                      !e.activo ? 'opacity-50' : ''
-                    }`}
-                  >
-                    <td className="py-3 px-4">
-                      <div className="font-semibold text-surface-800 line-clamp-1 max-w-sm">
-                        {e.titulo}
-                      </div>
-                      <div className="text-xs text-surface-400 line-clamp-1 max-w-sm mt-0.5">
-                        {e.contenido}
+                  <tr key={esc.id} className="hover:bg-surface-50/70 transition-colors">
+                    <td className="p-4 max-w-xs">
+                      <p className="font-bold text-surface-900 leading-snug">
+                        {esc.titulo}
+                      </p>
+                      <p className="text-[11px] text-surface-500 line-clamp-1 mt-0.5 font-mono">
+                        {esc.contenido}
+                      </p>
+                    </td>
+
+                    <td className="p-4 whitespace-nowrap">
+                      <div className="space-y-1">
+                        <span
+                          className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded-full border ${catMeta.bg} ${catMeta.color} ${catMeta.border}`}
+                        >
+                          {catMeta.label}
+                        </span>
+                        <div>
+                          <span
+                            className={`inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full border ${vecMeta.bg} ${vecMeta.color} ${vecMeta.border}`}
+                          >
+                            {vecMeta.label}
+                          </span>
+                        </div>
                       </div>
                     </td>
-                    <td className="py-3 px-3">
-                      <CategoryBadge categoria={e.categoria} />
-                    </td>
-                    <td className="py-3 px-3">
-                      <span
-                        className={`badge bg-surface-100 font-semibold ${dMeta.color}`}
-                      >
-                        {dMeta.label}
+
+                    <td className="p-4 whitespace-nowrap">
+                      <span className={`badge bg-surface-100 ${diffMeta.color} text-xs font-semibold`}>
+                        {diffMeta.label}
                       </span>
                     </td>
-                    <td className="py-3 px-3 text-center">
-                      {e.es_ataque ? (
-                        <span className="badge bg-danger-100 text-danger-700">
-                          Sí
+
+                    <td className="p-4 whitespace-nowrap">
+                      {esc.es_ataque ? (
+                        <span className="badge bg-rose-50 text-rose-700 border border-rose-200 font-bold text-[11px]">
+                          Ataque
                         </span>
                       ) : (
-                        <span className="badge bg-success-100 text-success-700">
-                          No
+                        <span className="badge bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold text-[11px]">
+                          Legítimo
                         </span>
                       )}
                     </td>
-                    <td className="py-3 px-3 text-center">
-                      {e.activo ? (
-                        <CheckCircle2 className="w-5 h-5 text-success-500 mx-auto" />
+
+                    <td className="p-4 max-w-xs">
+                      {esc.fuente ? (
+                        <div className="space-y-0.5">
+                          <p className="text-xs text-surface-700 font-medium line-clamp-2">
+                            {esc.fuente}
+                          </p>
+                          {esc.fuente_url && (
+                            <a
+                              href={esc.fuente_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-[11px] text-brand-600 hover:text-brand-800 font-bold inline-flex items-center gap-1"
+                            >
+                              Enlace <ExternalLink className="w-2.5 h-2.5" />
+                            </a>
+                          )}
+                        </div>
                       ) : (
-                        <X className="w-5 h-5 text-surface-300 mx-auto" />
+                        <span className="text-surface-400 text-xs italic">
+                          Control legítimo
+                        </span>
                       )}
                     </td>
-                    <td className="py-3 px-4">
-                      <div className="flex gap-1.5 justify-end">
+
+                    <td className="p-4 whitespace-nowrap">
+                      <button
+                        onClick={() => handleToggleActivo(esc)}
+                        className={`inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full transition-colors ${
+                          esc.activo
+                            ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'
+                            : 'bg-surface-200 text-surface-600 hover:bg-surface-300'
+                        }`}
+                        title="Clic para activar/desactivar"
+                      >
+                        {esc.activo ? 'Activo' : 'Inactivo'}
+                      </button>
+                    </td>
+
+                    <td className="p-4 text-right whitespace-nowrap">
+                      <div className="flex items-center justify-end gap-1.5">
                         <button
-                          title="Editar"
-                          onClick={() => openEdit(e)}
-                          className="p-2 rounded-lg text-surface-500 hover:bg-brand-50 hover:text-brand-600 transition-colors"
+                          onClick={() => handleOpenEdit(esc)}
+                          className="p-1.5 rounded-lg text-surface-600 hover:text-brand-600 hover:bg-brand-50 transition-colors"
+                          title="Editar escenario"
                         >
                           <Pencil className="w-4 h-4" />
                         </button>
                         <button
-                          title={e.activo ? 'Eliminar' : 'Eliminar definitivo'}
-                          onClick={() => setConfirmDeleteId(e.id)}
-                          className="p-2 rounded-lg text-surface-500 hover:bg-danger-50 hover:text-danger-600 transition-colors"
+                          onClick={() => setConfirmDeleteId(esc.id)}
+                          className="p-1.5 rounded-lg text-surface-600 hover:text-danger-600 hover:bg-danger-50 transition-colors"
+                          title="Eliminar escenario"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -360,210 +512,262 @@ export function ScenarioAdmin({
 
       {/* Modal Crear / Editar */}
       {modalOpen && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 animate-fade-in">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto animate-slide-up">
-            <div className="sticky top-0 bg-white border-b border-surface-100 p-5 flex items-center justify-between">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto animate-fade-in">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-2xl w-full border border-surface-200 overflow-hidden my-8 animate-slide-up">
+            <div className="p-6 bg-surface-50 border-b border-surface-200 flex items-center justify-between">
               <div>
-                <h2 className="text-lg font-bold text-surface-900">
-                  {editingId ? 'Editar escenario' : 'Nuevo escenario'}
-                </h2>
-                <p className="text-xs text-surface-400">
-                  {editingId ? 'Modifica los campos y guarda los cambios' : 'Añade un escenario nuevo al banco de entrenamiento'}
+                <h3 className="text-lg font-black text-surface-900">
+                  {editingId ? 'Editar Escenario' : 'Crear Nuevo Escenario Real'}
+                </h3>
+                <p className="text-xs text-surface-500 mt-0.5">
+                  Los escenarios de ataque deben incluir obligatoriamente su referencia real documentada.
                 </p>
               </div>
               <button
-                title="Cerrar"
                 onClick={() => setModalOpen(false)}
-                className="p-2 rounded-lg text-surface-400 hover:bg-surface-100 hover:text-surface-600"
+                className="p-1.5 rounded-lg text-surface-500 hover:bg-surface-200"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="p-5 space-y-5">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="md:col-span-2">
-                  <label className="label">Título del escenario *</label>
-                  <input
-                    className="input"
-                    value={form.titulo}
-                    onChange={(e) => setForm({ ...form, titulo: e.target.value })}
-                    placeholder="Ej: Urgente: Confirmar datos de tu cuenta"
-                  />
-                </div>
+            <form onSubmit={handleSave} className="p-6 space-y-4 text-xs sm:text-sm">
+              {/* Título */}
+              <div>
+                <label className="block text-xs font-bold text-surface-700 uppercase tracking-wider mb-1">
+                  Título del Escenario *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ej: Plan de Reclutamiento 2011 (Caso RSA SecurID)"
+                  value={form.titulo}
+                  onChange={(e) => setForm({ ...form, titulo: e.target.value })}
+                  className="input text-xs sm:text-sm"
+                />
+              </div>
 
+              {/* Canal y Vector */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="label">Categoría *</label>
+                  <label className="block text-xs font-bold text-surface-700 uppercase tracking-wider mb-1">
+                    Canal / Categoría *
+                  </label>
                   <select
-                    className="input"
                     value={form.categoria}
-                    onChange={(e) =>
-                      setForm({ ...form, categoria: e.target.value as Categoria })
-                    }
+                    onChange={(e) => setForm({ ...form, categoria: e.target.value as any })}
+                    className="input text-xs sm:text-sm"
                   >
-                    <option value="phishing">Phishing (email/web)</option>
-                    <option value="pretexting">Pretexting (falsa identidad)</option>
-                    <option value="baiting">Baiting (anzuelo físico/digital)</option>
-                    <option value="vishing">Vishing (por teléfono)</option>
+                    {CATEGORIAS.map((cat) => (
+                      <option key={cat} value={cat}>
+                        {getCategoryMeta(cat).label}
+                      </option>
+                    ))}
                   </select>
                 </div>
+
                 <div>
-                  <label className="label">Dificultad *</label>
+                  <label className="block text-xs font-bold text-surface-700 uppercase tracking-wider mb-1">
+                    Vector Psicológico *
+                  </label>
                   <select
-                    className="input"
-                    value={form.dificultad}
+                    value={form.vector_psicologico}
                     onChange={(e) =>
-                      setForm({ ...form, dificultad: e.target.value as Dificultad })
+                      setForm({ ...form, vector_psicologico: e.target.value as any })
                     }
+                    className="input text-xs sm:text-sm"
                   >
-                    <option value="bajo">Bajo</option>
-                    <option value="medio">Medio</option>
-                    <option value="alto">Alto</option>
+                    {VECTORES_PSICOLOGICOS.map((vec) => (
+                      <option key={vec} value={vec}>
+                        {getVectorMeta(vec).label}
+                      </option>
+                    ))}
                   </select>
-                </div>
-
-                <div className="md:col-span-2">
-                  <label className="label">Contenido simulado *</label>
-                  <p className="text-xs text-surface-400 mb-1.5">
-                    Texto tal cual lo verá el usuario (email, mensaje, guión de llamada…).
-                  </p>
-                  <textarea
-                    className="input min-h-40 font-mono text-xs leading-relaxed"
-                    value={form.contenido}
-                    onChange={(e) =>
-                      setForm({ ...form, contenido: e.target.value })
-                    }
-                    placeholder="Asunto: Tu factura vence hoy..."
-                  />
-                </div>
-
-                <div className="md:col-span-2 flex flex-col sm:flex-row gap-4">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={form.es_ataque}
-                      onChange={(e) =>
-                        setForm({ ...form, es_ataque: e.target.checked })
-                      }
-                      className="w-4 h-4 rounded border-surface-300 text-brand-600 focus:ring-brand-500"
-                    />
-                    <span className="text-sm text-surface-700 font-medium">
-                      Este escenario <strong className="text-danger-600">SÍ es un ataque real</strong>
-                    </span>
-                  </label>
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={form.activo}
-                      onChange={(e) =>
-                        setForm({ ...form, activo: e.target.checked })
-                      }
-                      className="w-4 h-4 rounded border-surface-300 text-brand-600 focus:ring-brand-500"
-                    />
-                    <span className="text-sm text-surface-700 font-medium">Escenario activo (visible en entrenamiento)</span>
-                  </label>
-                </div>
-
-                <div className="md:col-span-2">
-                  <label className="label">Explicación didáctica *</label>
-                  <p className="text-xs text-surface-400 mb-1.5">
-                    Se muestra después de la respuesta del usuario. Explica señales de detección y por qué es o no ataque.
-                  </p>
-                  <textarea
-                    className="input min-h-32"
-                    value={form.explicacion}
-                    onChange={(e) =>
-                      setForm({ ...form, explicacion: e.target.value })
-                    }
-                    placeholder="Señales claras: 1) el dominio no coincide, 2) urgencia, 3) petición de datos sensibles..."
-                  />
                 </div>
               </div>
-            </div>
 
-            <div className="sticky bottom-0 bg-white border-t border-surface-100 p-5 flex justify-end gap-2">
-              <button
-                onClick={() => setModalOpen(false)}
-                disabled={saving}
-                className="btn-secondary"
+              {/* Dificultad y Tipo */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-surface-700 uppercase tracking-wider mb-1">
+                    Dificultad *
+                  </label>
+                  <select
+                    value={form.dificultad}
+                    onChange={(e) => setForm({ ...form, dificultad: e.target.value as any })}
+                    className="input text-xs sm:text-sm"
+                  >
+                    {DIFICULTADES.map((d) => (
+                      <option key={d} value={d}>
+                        {getDifficultyMeta(d).label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-surface-700 uppercase tracking-wider mb-1">
+                    Naturaleza del Escenario
+                  </label>
+                  <div className="flex items-center gap-4 pt-2">
+                    <label className="flex items-center gap-2 cursor-pointer font-bold text-xs">
+                      <input
+                        type="radio"
+                        name="es_ataque"
+                        checked={form.es_ataque}
+                        onChange={() => setForm({ ...form, es_ataque: true })}
+                        className="text-rose-600"
+                      />
+                      <span className="text-rose-700">Ataque Real</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer font-bold text-xs">
+                      <input
+                        type="radio"
+                        name="es_ataque"
+                        checked={!form.es_ataque}
+                        onChange={() => setForm({ ...form, es_ataque: false })}
+                        className="text-emerald-600"
+                      />
+                      <span className="text-emerald-700">Control Legítimo</span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              {/* Contenido simulado */}
+              <div>
+                <label className="block text-xs font-bold text-surface-700 uppercase tracking-wider mb-1">
+                  Contenido Recreado (Texto, Correo o Transcripción) *
+                </label>
+                <textarea
+                  required
+                  rows={4}
+                  placeholder="Escribe la simulación del mensaje recreando la técnica..."
+                  value={form.contenido}
+                  onChange={(e) => setForm({ ...form, contenido: e.target.value })}
+                  className="input font-mono text-xs"
+                />
+              </div>
+
+              {/* Explicación */}
+              <div>
+                <label className="block text-xs font-bold text-surface-700 uppercase tracking-wider mb-1">
+                  Explicación Pedagógica *
+                </label>
+                <textarea
+                  required
+                  rows={3}
+                  placeholder="Explica qué técnica se utiliza y por qué es o no un ataque..."
+                  value={form.explicacion}
+                  onChange={(e) => setForm({ ...form, explicacion: e.target.value })}
+                  className="input text-xs sm:text-sm"
+                />
+              </div>
+
+              {/* Fuente Documentada (Obligatoria si es_ataque = true) */}
+              <div
+                className={`p-4 rounded-2xl border ${
+                  form.es_ataque
+                    ? 'bg-brand-50/60 border-brand-200'
+                    : 'bg-surface-50 border-surface-200'
+                }`}
               >
-                Cancelar
-              </button>
-              <button
-                onClick={handleSubmit}
-                disabled={saving}
-                className="btn-primary flex items-center gap-2"
-              >
-                {saving ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Guardando…
-                  </>
-                ) : editingId ? (
-                  'Guardar cambios'
-                ) : (
-                  'Crear escenario'
-                )}
-              </button>
-            </div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-xs font-black uppercase tracking-wider text-brand-900">
+                    Fuente Oficial Documentada {form.es_ataque && '(Obligatoria para Ataques) *'}
+                  </label>
+                  {form.es_ataque && (
+                    <span className="text-[10px] font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-200">
+                      Requisito Académico
+                    </span>
+                  )}
+                </div>
+                <input
+                  type="text"
+                  required={form.es_ataque}
+                  placeholder="Ej: Twitter Inc., Comunicado Oficial de Incidentes (julio 2020) & U.S. DOJ"
+                  value={form.fuente}
+                  onChange={(e) => setForm({ ...form, fuente: e.target.value })}
+                  className="input text-xs sm:text-sm bg-white mb-2"
+                />
+
+                <input
+                  type="url"
+                  placeholder="URL opcional de referencia (https://...)"
+                  value={form.fuente_url}
+                  onChange={(e) => setForm({ ...form, fuente_url: e.target.value })}
+                  className="input text-xs sm:text-sm bg-white"
+                />
+              </div>
+
+              {/* Activo switch */}
+              <div className="flex items-center gap-2 pt-1">
+                <input
+                  type="checkbox"
+                  id="activo"
+                  checked={form.activo}
+                  onChange={(e) => setForm({ ...form, activo: e.target.checked })}
+                  className="rounded text-brand-600 focus:ring-brand-500 w-4 h-4"
+                />
+                <label htmlFor="activo" className="text-xs font-bold text-surface-700 cursor-pointer">
+                  Escenario disponible para el motor adaptativo de entrenamiento
+                </label>
+              </div>
+
+              {/* Modal Actions */}
+              <div className="pt-4 border-t border-surface-200 flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setModalOpen(false)}
+                  className="btn-secondary"
+                  disabled={saving}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="btn-primary flex items-center gap-2"
+                  disabled={saving}
+                >
+                  {saving && <Loader2 className="w-4 h-4 animate-spin" />}
+                  <span>{editingId ? 'Guardar Cambios' : 'Crear Escenario'}</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
 
-      {/* Confirmación Delete */}
+      {/* Modal de Confirmar Eliminación */}
       {confirmDeleteId && (
-        <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-4 animate-fade-in">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 animate-slide-up">
-            <div className="flex items-start gap-3">
-              <div className="w-10 h-10 rounded-full bg-danger-100 flex items-center justify-center flex-shrink-0">
-                <AlertCircle className="w-5 h-5 text-danger-600" />
-              </div>
-              <div className="flex-1">
-                <h3 className="font-bold text-surface-900">Eliminar escenario</h3>
-                <p className="text-sm text-surface-500 mt-1">
-                  Elige cómo quieres proceder. Recomendamos desactivarlo (soft delete) para no romper el historial de respuestas existente.
-                </p>
-              </div>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fade-in">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-sm w-full p-6 border border-surface-200 text-center space-y-4 animate-slide-up">
+            <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center mx-auto">
+              <AlertTriangle className="w-6 h-6" />
             </div>
-            <div className="mt-5 flex flex-col sm:flex-row gap-2 sm:justify-end">
+            <div>
+              <h3 className="text-lg font-black text-surface-900">
+                ¿Eliminar este escenario?
+              </h3>
+              <p className="text-xs text-surface-500 mt-1">
+                Esta acción es irreversible y eliminará este escenario del banco experimental.
+              </p>
+            </div>
+            <div className="flex gap-3">
               <button
                 onClick={() => setConfirmDeleteId(null)}
-                className="btn-secondary"
+                className="btn-secondary flex-1"
               >
                 Cancelar
               </button>
               <button
-                onClick={() => handleDelete(confirmDeleteId, false)}
-                className="btn-secondary border-warning-200 text-warning-700 hover:bg-warning-50"
+                onClick={() => handleDelete(confirmDeleteId)}
+                className="btn-danger flex-1"
               >
-                Solo desactivar
-              </button>
-              <button
-                onClick={() => handleDelete(confirmDeleteId, true)}
-                className="btn-danger"
-              >
-                Eliminar definitivamente
+                Eliminar
               </button>
             </div>
           </div>
-        </div>
-      )}
-
-      {/* Toast */}
-      {toast && (
-        <div
-          className={`fixed bottom-6 right-6 z-[70] px-4 py-3 rounded-xl shadow-lg animate-slide-up flex items-center gap-2 text-sm font-medium ${
-            toast.type === 'success'
-              ? 'bg-success-600 text-white'
-              : 'bg-danger-600 text-white'
-          }`}
-        >
-          {toast.type === 'success' ? (
-            <CheckCircle2 className="w-4 h-4" />
-          ) : (
-            <AlertCircle className="w-4 h-4" />
-          )}
-          {toast.msg}
         </div>
       )}
     </div>

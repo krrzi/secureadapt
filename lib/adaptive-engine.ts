@@ -1,207 +1,300 @@
 /**
- * SecureAdapt — Adaptive Training Engine
+ * SecureAdapt — Motor de Entrenamiento Adaptativo Bidimensional (2D)
  *
- * Selects a personalized set of scenarios per session based on:
- * 1. Category weighting (fail 2+ → increase frequency)
- * 2. Difficulty progression (3+ correct streaks → increase difficulty)
- * 3. Anti-repetition (avoids recently seen scenarios)
+ * Dimensiones:
+ * 1. Categoría de Ataque: phishing | vishing | smishing | pretexting | baiting
+ * 2. Vector Psicológico: urgencia | autoridad | confianza | recompensa | amenaza | curiosidad
+ *
+ * Reglas de Adaptabilidad:
+ * - Detección de vulnerabilidad: 2+ fallos en una categoría O vector incrementan su frecuencia en la siguiente sesión (hasta 4x).
+ * - Progresión de dificultad: 3+ aciertos consecutivos en una categoría aumentan el nivel (bajo -> medio -> alto).
+ * - Perfil de riesgo cruzado: calcula la intersección (Categoría + Vector) con menor desempeño.
+ * - Filtro anti-repetición: prioriza escenarios no vistos en las últimas respuestas del usuario.
  */
 
 import type {
   Escenario,
   Categoria,
+  VectorPsicologico,
   Dificultad,
-  AdaptiveWeights,
   AdaptiveConfig,
-  CategoryStats,
   MetricasCategoria,
+  MetricasVector,
+  PerfilRiesgoCruzado,
+  Badge,
 } from './types';
 
-// ── Constants ────────────────────────────────────────────────
+// ── Constantes ────────────────────────────────────────────────
 
-const CATEGORIAS: Categoria[] = ['phishing', 'pretexting', 'baiting', 'vishing'];
+export const CATEGORIAS: Categoria[] = [
+  'phishing',
+  'vishing',
+  'smishing',
+  'pretexting',
+  'baiting',
+];
 
-const DEFAULT_WEIGHTS: AdaptiveWeights = {
-  phishing: 1,
-  pretexting: 1,
-  baiting: 1,
-  vishing: 1,
-};
+export const VECTORES_PSICOLOGICOS: VectorPsicologico[] = [
+  'urgencia',
+  'autoridad',
+  'confianza',
+  'recompensa',
+  'amenaza',
+  'curiosidad',
+];
 
-const DIFFICULTY_ORDER: Dificultad[] = ['bajo', 'medio', 'alto'];
+export const DIFICULTADES: Dificultad[] = ['bajo', 'medio', 'alto'];
 
-// ── Public API ───────────────────────────────────────────────
+// ── Construcción de Configuración Adaptativa 2D ───────────────
 
-/**
- * Builds the adaptive configuration for the next session
- * based on the user's historical performance metrics.
- */
-export function buildAdaptiveConfig(
-  metricas: MetricasCategoria[],
-  totalScenarios: number = 10
+export function buildAdaptiveConfig2D(
+  metricasCat: MetricasCategoria[],
+  metricasVec: MetricasVector[],
+  totalScenarios: number = 10,
+  historialReciente: Array<{
+    categoria: Categoria;
+    vector_psicologico: VectorPsicologico;
+    es_correcta: boolean;
+  }> = []
 ): AdaptiveConfig {
-  const weights = { ...DEFAULT_WEIGHTS };
-  const preferredDifficulty: Record<Categoria, Dificultad> = {
-    phishing: 'bajo',
-    pretexting: 'bajo',
-    baiting: 'bajo',
-    vishing: 'bajo',
+  const categoryWeights: Record<Categoria, number> = {
+    phishing: 1,
+    vishing: 1,
+    smishing: 1,
+    pretexting: 1,
+    baiting: 1,
   };
 
-  for (const m of metricas) {
+  const vectorWeights: Record<VectorPsicologico, number> = {
+    urgencia: 1,
+    autoridad: 1,
+    confianza: 1,
+    recompensa: 1,
+    amenaza: 1,
+    curiosidad: 1,
+  };
+
+  const preferredDifficulty: Record<Categoria, Dificultad> = {
+    phishing: 'bajo',
+    vishing: 'bajo',
+    smishing: 'bajo',
+    pretexting: 'bajo',
+    baiting: 'bajo',
+  };
+
+  // 1. Analizar fallos y rachas en Categorías
+  for (const m of metricasCat) {
     const cat = m.categoria;
-    const stats = computeCategoryStats(m);
+    const fallos = m.total - m.correctas;
 
-    // Rule 1: 2+ consecutive failures → increase category frequency
-    if (stats.racha_incorrectas >= 2) {
-      weights[cat] = Math.min(weights[cat] * 2, 4); // cap at 4x
+    // Regla 1: 2+ fallos en la categoría → aumentar peso
+    if (fallos >= 2) {
+      const mult = fallos >= 4 ? 3 : 2;
+      categoryWeights[cat] = Math.min(categoryWeights[cat] * mult, 4);
     }
 
-    // Rule 2: 3+ consecutive correct → increase difficulty
-    if (stats.racha_correctas >= 3) {
-      const currentIdx = DIFFICULTY_ORDER.indexOf(preferredDifficulty[cat]);
-      preferredDifficulty[cat] =
-        DIFFICULTY_ORDER[Math.min(currentIdx + 1, DIFFICULTY_ORDER.length - 1)];
-    }
-
-    // Rule 3: Below 50% accuracy → also increase weight slightly
-    if (m.precision_pct < 50 && stats.total >= 3) {
-      weights[cat] = Math.min(weights[cat] * 1.5, 4);
+    // Regla adicional: si la precisión es < 50% con al menos 2 intentos
+    if (m.total >= 2 && m.precision_pct < 50) {
+      categoryWeights[cat] = Math.min(categoryWeights[cat] * 1.5, 4);
     }
   }
 
-  return { totalScenarios, weights, preferredDifficulty };
+  // 2. Analizar fallos en Vectores Psicológicos
+  for (const v of metricasVec) {
+    const vec = v.vector;
+    const fallos = v.total - v.correctas;
+
+    // Regla 1 aplicada a vectores: 2+ fallos en el vector → aumentar peso
+    if (fallos >= 2) {
+      const mult = fallos >= 4 ? 3 : 2;
+      vectorWeights[vec] = Math.min(vectorWeights[vec] * mult, 4);
+    }
+
+    if (v.total >= 2 && v.precision_pct < 50) {
+      vectorWeights[vec] = Math.min(vectorWeights[vec] * 1.5, 4);
+    }
+  }
+
+  // 3. Progresión de dificultad basada en rachas de aciertos
+  if (historialReciente.length > 0) {
+    const streaks = computeCategoryStreaks(historialReciente);
+    for (const cat of CATEGORIAS) {
+      const correctStreak = streaks[cat]?.correctas ?? 0;
+      if (correctStreak >= 6) {
+        preferredDifficulty[cat] = 'alto';
+      } else if (correctStreak >= 3) {
+        preferredDifficulty[cat] = 'medio';
+      }
+    }
+  }
+
+  // Encontrar categoría y vector de enfoque primario
+  let primaryFocusCategory: Categoria | undefined = undefined;
+  let maxCatWeight = 1;
+  for (const cat of CATEGORIAS) {
+    if (categoryWeights[cat] > maxCatWeight) {
+      maxCatWeight = categoryWeights[cat];
+      primaryFocusCategory = cat;
+    }
+  }
+
+  let primaryFocusVector: VectorPsicologico | undefined = undefined;
+  let maxVecWeight = 1;
+  for (const vec of VECTORES_PSICOLOGICOS) {
+    if (vectorWeights[vec] > maxVecWeight) {
+      maxVecWeight = vectorWeights[vec];
+      primaryFocusVector = vec;
+    }
+  }
+
+  return {
+    totalScenarios,
+    categoryWeights,
+    vectorWeights,
+    preferredDifficulty,
+    primaryFocusCategory,
+    primaryFocusVector,
+  };
 }
 
-/**
- * Selects scenarios for a session using adaptive weights.
- * Guarantees variety: at least 1 scenario from each category (if available).
- */
-export function selectScenarios(
+// ── Selección de Escenarios Adaptativos ───────────────────────
+
+export function selectScenarios2D(
   allScenarios: Escenario[],
   config: AdaptiveConfig,
   recentScenarioIds: string[] = []
 ): Escenario[] {
-  const { totalScenarios, weights, preferredDifficulty } = config;
+  const { totalScenarios, categoryWeights, vectorWeights, preferredDifficulty } = config;
   const activeScenarios = allScenarios.filter((s) => s.activo);
 
-  // Filter out recently seen scenarios (last 2 sessions worth)
+  if (activeScenarios.length === 0) return [];
+
+  // Excluir escenarios vistos muy recientemente (últimos 20) si hay suficiente stock
   const recent = new Set(recentScenarioIds.slice(0, 20));
-  const available = activeScenarios.filter((s) => !recent.has(s.id));
+  const poolFresh = activeScenarios.filter((s) => !recent.has(s.id));
+  const pool = poolFresh.length >= totalScenarios ? poolFresh : activeScenarios;
 
-  // Fall back to all scenarios if too few available
-  const pool = available.length >= totalScenarios ? available : activeScenarios;
+  // Asignar puntuación de relevancia a cada escenario según la combinación de pesos 2D
+  const scored = pool.map((s) => {
+    const wCat = categoryWeights[s.categoria] ?? 1;
+    const wVec = vectorWeights[s.vector_psicologico] ?? 1;
+    const prefDiff = preferredDifficulty[s.categoria] ?? 'bajo';
+    const diffBonus = s.dificultad === prefDiff ? 1.5 : 1;
 
-  // Build weighted pool by category
-  const byCategory: Record<Categoria, Escenario[]> = {
-    phishing: [],
-    pretexting: [],
-    baiting: [],
-    vishing: [],
-  };
+    // Pequeño factor aleatorio para asegurar dinamismo sin alterar prioridades
+    const jitter = 0.85 + Math.random() * 0.3;
+    const score = (wCat * 1.5 + wVec * 1.2) * diffBonus * jitter;
 
-  for (const scenario of pool) {
-    byCategory[scenario.categoria].push(scenario);
-  }
+    return { escenario: s, score };
+  });
 
-  // Sort each category by preferred difficulty (preferred first, then others)
-  for (const cat of CATEGORIAS) {
-    byCategory[cat].sort((a, b) => {
-      const prefDiff = preferredDifficulty[cat];
-      if (a.dificultad === prefDiff && b.dificultad !== prefDiff) return -1;
-      if (b.dificultad === prefDiff && a.dificultad !== prefDiff) return 1;
-      return 0;
-    });
-  }
+  // Ordenar por relevancia calculada
+  scored.sort((a, b) => b.score - a.score);
 
-  // Calculate slot allocation based on weights
-  const totalWeight = CATEGORIAS.reduce((sum, cat) => sum + weights[cat], 0);
-  const slots: Record<Categoria, number> = {
-    phishing: 0,
-    pretexting: 0,
-    baiting: 0,
-    vishing: 0,
-  };
-
-  // First pass: proportional allocation (at least 1 per category)
-  let remaining = totalScenarios;
-  for (const cat of CATEGORIAS) {
-    const catSlots = Math.max(
-      1,
-      Math.round((weights[cat] / totalWeight) * totalScenarios)
-    );
-    slots[cat] = catSlots;
-    remaining -= catSlots;
-  }
-
-  // Adjust if over/under
-  if (remaining > 0) {
-    // Add extra to highest-weight category
-    const maxCat = CATEGORIAS.reduce((a, b) =>
-      weights[a] > weights[b] ? a : b
-    );
-    slots[maxCat] += remaining;
-  } else if (remaining < 0) {
-    // Remove from lowest-weight category
-    const minCat = CATEGORIAS.reduce((a, b) =>
-      weights[a] < weights[b] ? a : b
-    );
-    slots[minCat] = Math.max(1, slots[minCat] + remaining);
-  }
-
-  // Select scenarios from each category
+  // Garantizar cobertura mínima de diversidad: al menos 1 escenario de cada categoría si existe
   const selected: Escenario[] = [];
+  const selectedIds = new Set<string>();
+
   for (const cat of CATEGORIAS) {
-    const catScenarios = byCategory[cat];
-    const needed = Math.min(slots[cat], catScenarios.length);
-    const shuffled = shuffleArray([...catScenarios]);
-    selected.push(...shuffled.slice(0, needed));
+    const match = scored.find(
+      (item) => item.escenario.categoria === cat && !selectedIds.has(item.escenario.id)
+    );
+    if (match) {
+      selected.push(match.escenario);
+      selectedIds.add(match.escenario.id);
+    }
   }
 
-  // Fill remaining slots if a category had fewer scenarios than needed
+  // Garantizar al menos 2 escenarios legítimos de control (es_ataque = false) para medir falsos positivos
+  const legitimos = scored.filter(
+    (item) => !item.escenario.es_ataque && !selectedIds.has(item.escenario.id)
+  );
+  for (let i = 0; i < Math.min(2, legitimos.length); i++) {
+    selected.push(legitimos[i].escenario);
+    selectedIds.add(legitimos[i].escenario.id);
+  }
+
+  // Completar el resto de los cupos con los escenarios con mayor puntuación adaptativa
+  for (const item of scored) {
+    if (selected.length >= totalScenarios) break;
+    if (!selectedIds.has(item.escenario.id)) {
+      selected.push(item.escenario);
+      selectedIds.add(item.escenario.id);
+    }
+  }
+
+  // Si aún faltan cupos (por filtros), rellenar desde activeScenarios
   if (selected.length < totalScenarios) {
-    const remaining_pool = pool.filter((s) => !selected.find((sel) => sel.id === s.id));
-    const extra = shuffleArray(remaining_pool).slice(0, totalScenarios - selected.length);
-    selected.push(...extra);
+    const remaining = activeScenarios.filter((s) => !selectedIds.has(s.id));
+    for (const s of shuffleArray(remaining)) {
+      if (selected.length >= totalScenarios) break;
+      selected.push(s);
+      selectedIds.add(s.id);
+    }
   }
 
-  // Shuffle final selection to avoid predictable ordering
+  // Barajar el orden final para que no sea predecible para el sujeto experimental
   return shuffleArray(selected).slice(0, totalScenarios);
 }
 
-/**
- * Computes streak statistics from aggregated metrics.
- * Note: True streaks require per-answer data. This approximates from aggregate stats.
- */
-function computeCategoryStats(m: MetricasCategoria): CategoryStats {
-  const precision = m.precision_pct / 100;
-  const racha_correctas = precision >= 0.8 && m.total >= 3 ? 3 : 0;
-  const racha_incorrectas = precision < 0.4 && m.total >= 2 ? 2 : 0;
+// ── Perfil de Riesgo Cruzado (Categoría × Vector) ────────────
 
-  return {
-    categoria: m.categoria,
-    total: m.total,
-    correctas: m.correctas,
-    racha_correctas,
-    racha_incorrectas,
-  };
+export function computeCrossRiskProfile(
+  respuestasConEscenario: Array<{
+    es_correcta: boolean;
+    categoria: Categoria;
+    vector_psicologico: VectorPsicologico;
+  }>
+): PerfilRiesgoCruzado[] {
+  const map = new Map<string, { total: number; fallos: number }>();
+
+  for (const r of respuestasConEscenario) {
+    const key = `${r.categoria}::${r.vector_psicologico}`;
+    const prev = map.get(key) ?? { total: 0, fallos: 0 };
+    prev.total += 1;
+    if (!r.es_correcta) prev.fallos += 1;
+    map.set(key, prev);
+  }
+
+  const profiles: PerfilRiesgoCruzado[] = [];
+  for (const [key, val] of Array.from(map.entries())) {
+    const [categoria, vector] = key.split('::') as [Categoria, VectorPsicologico];
+    const tasa_fallo_pct = val.total > 0 ? Math.round((val.fallos / val.total) * 1000) / 10 : 0;
+    const precision_pct = 100 - tasa_fallo_pct;
+    profiles.push({
+      categoria,
+      vector,
+      total: val.total,
+      fallos: val.fallos,
+      tasa_fallo_pct,
+      precision_pct,
+    });
+  }
+
+  // Ordenar por mayor tasa de fallo y luego por mayor número de fallos
+  profiles.sort((a, b) => {
+    if (b.tasa_fallo_pct !== a.tasa_fallo_pct) {
+      return b.tasa_fallo_pct - a.tasa_fallo_pct;
+    }
+    return b.fallos - a.fallos;
+  });
+
+  return profiles;
 }
 
-/**
- * Computes precise consecutive streaks from ordered answer history.
- * Use this for accurate streak detection when you have full response data.
- */
-export function computeStreaksFromHistory(
+// ── Cálculo de Rachas por Historial ──────────────────────────
+
+export function computeCategoryStreaks(
   respuestas: Array<{ categoria: Categoria; es_correcta: boolean }>
 ): Record<Categoria, { correctas: number; incorrectas: number }> {
   const streaks: Record<Categoria, { correctas: number; incorrectas: number }> = {
     phishing: { correctas: 0, incorrectas: 0 },
+    vishing: { correctas: 0, incorrectas: 0 },
+    smishing: { correctas: 0, incorrectas: 0 },
     pretexting: { correctas: 0, incorrectas: 0 },
     baiting: { correctas: 0, incorrectas: 0 },
-    vishing: { correctas: 0, incorrectas: 0 },
   };
 
-  // Process in reverse (most recent first)
   const reversed = [...respuestas].reverse();
 
   for (const cat of CATEGORIAS) {
@@ -225,7 +318,266 @@ export function computeStreaksFromHistory(
   return streaks;
 }
 
-// ── Utilities ────────────────────────────────────────────────
+// ── Cálculo de Falsos Positivos y Falsos Negativos ────────────
+
+export function calcularErrores(
+  respuestas: Array<{
+    respuesta_usuario: boolean;
+    respuesta_correcta: boolean;
+    es_ataque: boolean;
+  }>
+) {
+  let falsosPositivos = 0; // Marcado como ataque cuando era legítimo (paranoia)
+  let falsosNegativos = 0; // Marcado como legítimo cuando era ataque (vulnerabilidad crítica)
+  let verdaderosPositivos = 0;
+  let verdaderosNegativos = 0;
+
+  for (const r of respuestas) {
+    const dijoAtaque = r.respuesta_usuario;
+    const esAtaque = r.es_ataque;
+
+    if (dijoAtaque && !esAtaque) {
+      falsosPositivos++;
+    } else if (!dijoAtaque && esAtaque) {
+      falsosNegativos++;
+    } else if (dijoAtaque && esAtaque) {
+      verdaderosPositivos++;
+    } else {
+      verdaderosNegativos++;
+    }
+  }
+
+  const total = respuestas.length;
+  const tasaFalsosPositivosPct =
+    total > 0 ? Math.round((falsosPositivos / total) * 1000) / 10 : 0;
+  const tasaFalsosNegativosPct =
+    total > 0 ? Math.round((falsosNegativos / total) * 1000) / 10 : 0;
+
+  return {
+    falsosPositivos,
+    falsosNegativos,
+    verdaderosPositivos,
+    verdaderosNegativos,
+    tasaFalsosPositivosPct,
+    tasaFalsosNegativosPct,
+  };
+}
+
+// ── Metadatos Visuales y UI ───────────────────────────────────
+
+export function getCategoryMeta(cat: Categoria) {
+  const meta: Record<
+    Categoria,
+    { label: string; color: string; bg: string; border: string; desc: string }
+  > = {
+    phishing: {
+      label: 'Phishing',
+      color: 'text-red-600',
+      bg: 'bg-red-50',
+      border: 'border-red-200',
+      desc: 'Engaño mediante correo electrónico o sitios web fraudulentos para robar credenciales.',
+    },
+    vishing: {
+      label: 'Vishing',
+      color: 'text-purple-600',
+      bg: 'bg-purple-50',
+      border: 'border-purple-200',
+      desc: 'Ingeniería social por llamada telefónica o interacción de voz para manipular a la víctima.',
+    },
+    smishing: {
+      label: 'Smishing',
+      color: 'text-blue-600',
+      bg: 'bg-blue-50',
+      border: 'border-blue-200',
+      desc: 'Mensajes SMS fraudulentos dirigidos a teléfonos móviles con enlaces maliciosos.',
+    },
+    pretexting: {
+      label: 'Pretexting',
+      color: 'text-amber-600',
+      bg: 'bg-amber-50',
+      border: 'border-amber-200',
+      desc: 'Creación de un escenario o identidad falsa elaborada para ganarse la confianza de la víctima.',
+    },
+    baiting: {
+      label: 'Baiting',
+      color: 'text-emerald-600',
+      bg: 'bg-emerald-50',
+      border: 'border-emerald-200',
+      desc: 'Uso de cebos tentadores (archivos de interés, memorias USB, premios) para infectar equipos.',
+    },
+  };
+  return meta[cat] ?? meta.phishing;
+}
+
+export function getVectorMeta(vector: VectorPsicologico) {
+  const meta: Record<
+    VectorPsicologico,
+    { label: string; color: string; bg: string; border: string; desc: string }
+  > = {
+    urgencia: {
+      label: 'Urgencia',
+      color: 'text-rose-600',
+      bg: 'bg-rose-50',
+      border: 'border-rose-200',
+      desc: 'Impone plazos inmediatos para anular el pensamiento reflexivo.',
+    },
+    autoridad: {
+      label: 'Autoridad',
+      color: 'text-indigo-600',
+      bg: 'bg-indigo-50',
+      border: 'border-indigo-200',
+      desc: 'Suplanta jefaturas, TI o entidades gubernamentales para exigir acatamiento.',
+    },
+    confianza: {
+      label: 'Confianza',
+      color: 'text-cyan-600',
+      bg: 'bg-cyan-50',
+      border: 'border-cyan-200',
+      desc: 'Aprovecha relaciones previas, colegas o marcas de alta reputación.',
+    },
+    recompensa: {
+      label: 'Recompensa',
+      color: 'text-amber-600',
+      bg: 'bg-amber-50',
+      border: 'border-amber-200',
+      desc: 'Promete dinero, subsidios, premios o software gratuito.',
+    },
+    amenaza: {
+      label: 'Amenaza',
+      color: 'text-red-700',
+      bg: 'bg-red-50',
+      border: 'border-red-300',
+      desc: 'Genera miedo a multas legales, bloqueos de cuenta o despidos.',
+    },
+    curiosidad: {
+      label: 'Curiosidad',
+      color: 'text-fuchsia-600',
+      bg: 'bg-fuchsia-50',
+      border: 'border-fuchsia-200',
+      desc: 'Despierta el deseo de descubrir información confidencial o restringida.',
+    },
+  };
+  return meta[vector] ?? meta.urgencia;
+}
+
+export function getDifficultyMeta(diff: Dificultad) {
+  const meta: Record<Dificultad, { label: string; color: string; bg: string }> = {
+    bajo: { label: 'Básico', color: 'text-green-700', bg: 'bg-green-50' },
+    medio: { label: 'Intermedio', color: 'text-amber-700', bg: 'bg-amber-50' },
+    alto: { label: 'Avanzado', color: 'text-red-700', bg: 'bg-red-50' },
+  };
+  return meta[diff] ?? meta.bajo;
+}
+
+// ── Sistema de Insignias y Logros ────────────────────────────
+
+export function evaluateBadges(
+  respuestas: Array<{
+    es_correcta: boolean;
+    categoria: Categoria;
+    vector_psicologico: VectorPsicologico;
+  }>,
+  totalSesiones: number
+): Badge[] {
+  const correctasPorCat: Record<Categoria, number> = {
+    phishing: 0,
+    vishing: 0,
+    smishing: 0,
+    pretexting: 0,
+    baiting: 0,
+  };
+
+  const correctasPorVector: Record<VectorPsicologico, number> = {
+    urgencia: 0,
+    autoridad: 0,
+    confianza: 0,
+    recompensa: 0,
+    amenaza: 0,
+    curiosidad: 0,
+  };
+
+  for (const r of respuestas) {
+    if (r.es_correcta) {
+      correctasPorCat[r.categoria] = (correctasPorCat[r.categoria] ?? 0) + 1;
+      correctasPorVector[r.vector_psicologico] =
+        (correctasPorVector[r.vector_psicologico] ?? 0) + 1;
+    }
+  }
+
+  const badges: Badge[] = [
+    {
+      id: 'primera-sesion',
+      titulo: 'Primer Paso Ciberseguro',
+      descripcion: 'Completa tu primera sesión de entrenamiento experimental.',
+      icono: '🎯',
+      desbloqueado: totalSesiones >= 1,
+      progresoActual: Math.min(totalSesiones, 1),
+      progresoMeta: 1,
+    },
+    {
+      id: 'anti-bec',
+      titulo: 'Detective anti-BEC',
+      descripcion: 'Detecta con éxito 3 ataques de phishing basados en confianza o fraude corporativo.',
+      icono: '🕵️‍♂️',
+      desbloqueado: correctasPorCat.phishing >= 3,
+      progresoActual: Math.min(correctasPorCat.phishing, 3),
+      progresoMeta: 3,
+    },
+    {
+      id: 'experto-vishing',
+      titulo: 'Inmune a la Voz',
+      descripcion: 'Supera 3 escenarios reales de vishing y suplantación telefónica/MFA.',
+      icono: '📞',
+      desbloqueado: correctasPorCat.vishing >= 3,
+      progresoActual: Math.min(correctasPorCat.vishing, 3),
+      progresoMeta: 3,
+    },
+    {
+      id: 'escudo-smishing',
+      titulo: 'Escudo contra Smishing',
+      descripcion: 'Identifica correctamente 3 mensajes SMS fraudulentos.',
+      icono: '💬',
+      desbloqueado: correctasPorCat.smishing >= 3,
+      progresoActual: Math.min(correctasPorCat.smishing, 3),
+      progresoMeta: 3,
+    },
+    {
+      id: 'cazador-pretexting',
+      titulo: 'Cazador de Pretextos',
+      descripcion: 'Descubre 3 intentos de pretexting e ingeniería social preparatoria.',
+      icono: '🎭',
+      desbloqueado: correctasPorCat.pretexting >= 3,
+      progresoActual: Math.min(correctasPorCat.pretexting, 3),
+      progresoMeta: 3,
+    },
+    {
+      id: 'inmune-urgencia',
+      titulo: 'Mente Serena',
+      descripcion: 'Responde acertadamente a 5 escenarios con vector de urgencia extrema o amenaza.',
+      icono: '🧘',
+      desbloqueado:
+        correctasPorVector.urgencia + correctasPorVector.amenaza >= 5,
+      progresoActual: Math.min(
+        correctasPorVector.urgencia + correctasPorVector.amenaza,
+        5
+      ),
+      progresoMeta: 5,
+    },
+    {
+      id: 'veterano-seguridad',
+      titulo: 'Analista Certificado',
+      descripcion: 'Completa al menos 3 sesiones de entrenamiento adaptativo.',
+      icono: '🎓',
+      desbloqueado: totalSesiones >= 3,
+      progresoActual: Math.min(totalSesiones, 3),
+      progresoMeta: 3,
+    },
+  ];
+
+  return badges;
+}
+
+// ── Función Utilitaria de Barajado ───────────────────────────
 
 function shuffleArray<T>(array: T[]): T[] {
   const arr = [...array];
@@ -234,56 +586,4 @@ function shuffleArray<T>(array: T[]): T[] {
     [arr[i], arr[j]] = [arr[j], arr[i]];
   }
   return arr;
-}
-
-/**
- * Calculates false positive and false negative rates.
- * - False Positive: Marked as attack when it's legitimate
- * - False Negative: Marked as legitimate when it's an attack
- */
-export function calcularErrores(
-  respuestas: Array<{
-    respuesta_usuario: boolean;
-    respuesta_correcta: boolean;
-    es_ataque: boolean;
-  }>
-) {
-  let falsosPositivos = 0;
-  let falsosNegativos = 0;
-  let verdaderosPositivos = 0;
-  let verdaderosNegativos = 0;
-
-  for (const r of respuestas) {
-    const marcadoComoAtaque = r.respuesta_usuario;
-    const esAtaque = r.es_ataque;
-
-    if (marcadoComoAtaque && !esAtaque) falsosPositivos++;
-    else if (!marcadoComoAtaque && esAtaque) falsosNegativos++;
-    else if (marcadoComoAtaque && esAtaque) verdaderosPositivos++;
-    else verdaderosNegativos++;
-  }
-
-  return { falsosPositivos, falsosNegativos, verdaderosPositivos, verdaderosNegativos };
-}
-
-/**
- * Returns display label and color class for a category.
- */
-export function getCategoryMeta(cat: Categoria) {
-  const meta: Record<Categoria, { label: string; color: string; bg: string }> = {
-    phishing: { label: 'Phishing', color: 'text-red-600', bg: 'bg-red-100' },
-    pretexting: { label: 'Pretexting', color: 'text-orange-600', bg: 'bg-orange-100' },
-    baiting: { label: 'Baiting', color: 'text-yellow-600', bg: 'bg-yellow-100' },
-    vishing: { label: 'Vishing', color: 'text-purple-600', bg: 'bg-purple-100' },
-  };
-  return meta[cat];
-}
-
-export function getDifficultyMeta(diff: Dificultad) {
-  const meta: Record<Dificultad, { label: string; color: string }> = {
-    bajo: { label: 'Bajo', color: 'text-green-600' },
-    medio: { label: 'Medio', color: 'text-yellow-600' },
-    alto: { label: 'Alto', color: 'text-red-600' },
-  };
-  return meta[diff];
 }

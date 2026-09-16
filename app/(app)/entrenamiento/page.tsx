@@ -4,49 +4,95 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { v4 as uuidv4 } from 'uuid';
 import { createClient } from '@/lib/supabase/client';
-import { buildAdaptiveConfig, selectScenarios } from '@/lib/adaptive-engine';
+import {
+  buildAdaptiveConfig2D,
+  selectScenarios2D,
+  getCategoryMeta,
+  getVectorMeta,
+} from '@/lib/adaptive-engine';
 import { ScenarioCard } from '@/components/training/ScenarioCard';
 import { ResultModal } from '@/components/training/ResultModal';
 import { ProgressBar } from '@/components/training/ProgressBar';
 import { useTimer, TimerDisplay } from '@/components/training/Timer';
-import type { Escenario, AnswerRecord, MetricasCategoria, Categoria } from '@/lib/types';
-import { CheckCircle, XCircle, Trophy, RotateCcw, BarChart2, AlertCircle, Loader2, Brain } from 'lucide-react';
+import type {
+  Escenario,
+  AnswerRecord,
+  MetricasCategoria,
+  MetricasVector,
+  Categoria,
+  VectorPsicologico,
+} from '@/lib/types';
+import {
+  RotateCcw,
+  BarChart2,
+  Brain,
+  Shield,
+  BookOpen,
+  ArrowRight,
+  Flame,
+  CheckCircle2,
+  Sparkles,
+} from 'lucide-react';
 
 const SCENARIOS_PER_SESSION = 10;
 
-// ── Onboarding Modal ─────────────────────────────────────────
+// ── Modal de Onboarding ──────────────────────────────────────
 function OnboardingModal({ onStart }: { onStart: () => void }) {
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full animate-slide-up">
-        <div className="p-6 border-b border-surface-100">
-          <div className="w-12 h-12 bg-brand-100 rounded-xl flex items-center justify-center mb-4">
-            <Brain className="w-7 h-7 text-brand-600" />
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fade-in">
+      <div className="bg-white rounded-3xl shadow-2xl max-w-lg w-full overflow-hidden border border-surface-200 animate-slide-up">
+        <div className="p-6 sm:p-7 bg-gradient-to-br from-brand-50 to-white border-b border-surface-200">
+          <div className="w-12 h-12 bg-brand-600 rounded-2xl flex items-center justify-center mb-4 text-white shadow-md shadow-brand-600/20">
+            <Brain className="w-7 h-7" />
           </div>
-          <h2 className="text-xl font-bold text-surface-900">¿Cómo funciona el entrenamiento?</h2>
-          <p className="text-sm text-surface-500 mt-1">Lee esto antes de tu primera sesión</p>
+          <h2 className="text-xl sm:text-2xl font-black text-surface-900 tracking-tight">
+            Entrenamiento Adaptativo 2D
+          </h2>
+          <p className="text-xs sm:text-sm text-surface-600 mt-1 font-medium">
+            Basado en casos reales documentados de ingeniería social
+          </p>
         </div>
-        <div className="p-6 space-y-4">
-          <div className="space-y-3">
-            {[
-              { icon: '📧', title: 'Analiza el escenario', desc: 'Se te mostrará un email, mensaje o descripción de llamada telefónica.' },
-              { icon: '🤔', title: 'Decide rápido', desc: 'Indica si crees que es un ataque de ingeniería social o un mensaje legítimo. El tiempo importa.' },
-              { icon: '📚', title: 'Aprende del resultado', desc: 'Verás la explicación de por qué es o no es un ataque, con señales específicas a identificar.' },
-              { icon: '🧠', title: 'El sistema se adapta', desc: 'Si fallas en una categoría, recibirás más ejercicios de esa área. Si mejoras, subirá la dificultad.' },
-            ].map((step) => (
-              <div key={step.title} className="flex gap-3">
-                <span className="text-2xl flex-shrink-0">{step.icon}</span>
-                <div>
-                  <p className="font-semibold text-sm text-surface-800">{step.title}</p>
-                  <p className="text-xs text-surface-500 mt-0.5">{step.desc}</p>
-                </div>
+
+        <div className="p-6 sm:p-7 space-y-4 text-left">
+          {[
+            {
+              icon: '📚',
+              title: 'Casos Reales Documentados',
+              desc: 'No son simulaciones inventadas. Cada escenario recrea técnicas reales documentadas por APWG, FBI IC3, Group-IB y la banca peruana.',
+            },
+            {
+              icon: '🧠',
+              title: 'Evaluación Bidimensional',
+              desc: 'El sistema evalúa tanto el Canal (Phishing, Vishing, Smishing, Pretexting, Baiting) como el Vector Psicológico (Urgencia, Autoridad, Confianza, etc.).',
+            },
+            {
+              icon: '⚡',
+              title: 'Adaptación a tus Puntos Ciegos',
+              desc: 'Si fallas 2+ veces en un vector o categoría, el sistema priorizará esos casos para entrenar tu debilidad. Si aciertas de forma continua, aumentará la dificultad.',
+            },
+            {
+              icon: '⏱️',
+              title: 'El Tiempo de Decisión Cuenta',
+              desc: 'Un cronómetro medirá tu tiempo de reacción. Piensa críticamente antes de decidir si el mensaje es legítimo o un ataque.',
+            },
+          ].map((item) => (
+            <div key={item.title} className="flex items-start gap-3.5">
+              <span className="text-2xl flex-shrink-0 mt-0.5">{item.icon}</span>
+              <div>
+                <p className="font-bold text-sm text-surface-900">{item.title}</p>
+                <p className="text-xs text-surface-500 mt-0.5 leading-relaxed">{item.desc}</p>
               </div>
-            ))}
-          </div>
+            </div>
+          ))}
         </div>
-        <div className="p-6 pt-0">
-          <button onClick={onStart} className="btn-primary w-full btn-lg">
-            ¡Comenzar entrenamiento!
+
+        <div className="p-6 sm:p-7 pt-0">
+          <button
+            onClick={onStart}
+            className="btn-primary w-full btn-lg rounded-2xl shadow-lg shadow-brand-600/20 flex items-center justify-center gap-2"
+          >
+            <span>¡Iniciar Sesión de Entrenamiento!</span>
+            <ArrowRight className="w-4 h-4" />
           </button>
         </div>
       </div>
@@ -54,81 +100,135 @@ function OnboardingModal({ onStart }: { onStart: () => void }) {
   );
 }
 
-// ── Session Results ───────────────────────────────────────────
-function SessionResults({ answers, onRestart, onGoToDashboard }: {
+// ── Resultados de la Sesión ──────────────────────────────────
+function SessionResults({
+  answers,
+  onRestart,
+  onGoToDashboard,
+}: {
   answers: AnswerRecord[];
   onRestart: () => void;
   onGoToDashboard: () => void;
 }) {
   const correctas = answers.filter((a) => a.es_correcta).length;
-  const precision = (correctas / answers.length) * 100;
-  const tiempoPromedio = answers.reduce((s, a) => s + a.tiempo_respuesta_ms, 0) / answers.length;
+  const precision = Math.round((correctas / answers.length) * 100);
+  const tiempoPromedio =
+    answers.reduce((s, a) => s + a.tiempo_respuesta_ms, 0) / answers.length;
 
-  const categoriaStats = ['phishing', 'pretexting', 'baiting', 'vishing'].map((cat) => {
-    const catAnswers = answers.filter((a) => a.escenario.categoria === cat);
-    if (catAnswers.length === 0) return null;
-    const catCorrectas = catAnswers.filter((a) => a.es_correcta).length;
-    return {
-      cat,
-      total: catAnswers.length,
-      correctas: catCorrectas,
-      pct: (catCorrectas / catAnswers.length) * 100,
-    };
-  }).filter(Boolean);
+  const cats: Categoria[] = ['phishing', 'vishing', 'smishing', 'pretexting', 'baiting'];
+  const catStats = cats
+    .map((cat) => {
+      const filtered = answers.filter((a) => a.escenario.categoria === cat);
+      if (filtered.length === 0) return null;
+      const c = filtered.filter((a) => a.es_correcta).length;
+      return {
+        cat,
+        total: filtered.length,
+        correctas: c,
+        pct: Math.round((c / filtered.length) * 100),
+      };
+    })
+    .filter(Boolean);
 
-  const emoji = precision >= 90 ? '🏆' : precision >= 70 ? '🎯' : precision >= 50 ? '📈' : '💪';
+  const emoji =
+    precision >= 90 ? '🏆' : precision >= 70 ? '🎯' : precision >= 50 ? '📈' : '💪';
 
   return (
     <div className="max-w-2xl mx-auto animate-slide-up">
-      <div className="card overflow-hidden">
-        {/* Header */}
-        <div className={`p-8 text-center ${precision >= 70 ? 'bg-success-50' : precision >= 50 ? 'bg-warning-50' : 'bg-danger-50'}`}>
+      <div className="card overflow-hidden shadow-2xl border-surface-200">
+        {/* Score Header */}
+        <div
+          className={`p-8 text-center border-b ${
+            precision >= 70
+              ? 'bg-emerald-50/80 border-emerald-200'
+              : precision >= 50
+              ? 'bg-amber-50/80 border-amber-200'
+              : 'bg-rose-50/80 border-rose-200'
+          }`}
+        >
           <div className="text-5xl mb-3">{emoji}</div>
-          <h2 className="text-2xl font-bold text-surface-900">Sesión completada</h2>
-          <p className="text-4xl font-black mt-2 text-brand-600">{precision.toFixed(0)}%</p>
-          <p className="text-surface-500 text-sm mt-1">de precisión</p>
-          <div className="flex justify-center gap-6 mt-4 text-sm">
+          <h2 className="text-2xl font-black text-surface-900 tracking-tight">
+            Sesión Completada
+          </h2>
+          <p className="text-5xl font-black mt-2 text-brand-600 tracking-tight">
+            {precision}%
+          </p>
+          <p className="text-xs uppercase tracking-widest text-surface-500 font-bold mt-1">
+            Precisión de Detección
+          </p>
+
+          <div className="flex justify-center gap-8 mt-6 pt-6 border-t border-surface-200/60 text-sm">
             <div className="text-center">
-              <p className="font-bold text-success-600">{correctas}</p>
-              <p className="text-surface-400">Correctas</p>
+              <p className="text-xl font-black text-emerald-600">{correctas}</p>
+              <p className="text-xs text-surface-500 font-medium">Aciertos</p>
             </div>
             <div className="text-center">
-              <p className="font-bold text-danger-600">{answers.length - correctas}</p>
-              <p className="text-surface-400">Incorrectas</p>
+              <p className="text-xl font-black text-rose-600">
+                {answers.length - correctas}
+              </p>
+              <p className="text-xs text-surface-500 font-medium">Fallos</p>
             </div>
             <div className="text-center">
-              <p className="font-bold text-brand-600">{(tiempoPromedio / 1000).toFixed(1)}s</p>
-              <p className="text-surface-400">Tiempo prom.</p>
+              <p className="text-xl font-black text-brand-600">
+                {(tiempoPromedio / 1000).toFixed(1)}s
+              </p>
+              <p className="text-xs text-surface-500 font-medium">Tiempo prom.</p>
             </div>
           </div>
         </div>
 
-        {/* Category breakdown */}
-        <div className="p-6 space-y-3">
-          <h3 className="font-semibold text-surface-700 text-sm uppercase tracking-wide">Por categoría</h3>
-          {categoriaStats.map((stat) => stat && (
-            <div key={stat.cat} className="flex items-center gap-3">
-              <span className="text-xs font-medium text-surface-500 w-24 capitalize">{stat.cat}</span>
-              <div className="flex-1 bg-surface-100 rounded-full h-2">
-                <div
-                  className={`h-2 rounded-full ${stat.pct >= 70 ? 'bg-success-500' : stat.pct >= 50 ? 'bg-warning-500' : 'bg-danger-500'}`}
-                  style={{ width: `${stat.pct}%` }}
-                />
-              </div>
-              <span className="text-xs font-semibold text-surface-600 w-16 text-right">
-                {stat.correctas}/{stat.total} ({stat.pct.toFixed(0)}%)
-              </span>
-            </div>
-          ))}
+        {/* Desglose por Categoría */}
+        <div className="p-6 sm:p-7 space-y-4">
+          <h3 className="font-bold text-surface-800 text-xs uppercase tracking-wider">
+            Rendimiento por Canal de Ataque
+          </h3>
+          <div className="space-y-3">
+            {catStats.map((stat) => {
+              if (!stat) return null;
+              const meta = getCategoryMeta(stat.cat);
+              return (
+                <div key={stat.cat} className="space-y-1">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-bold text-surface-700 capitalize">
+                      {meta.label}
+                    </span>
+                    <span className="font-semibold text-surface-500">
+                      {stat.correctas}/{stat.total} ({stat.pct}%)
+                    </span>
+                  </div>
+                  <div className="w-full bg-surface-100 rounded-full h-2 overflow-hidden">
+                    <div
+                      className={`h-2 rounded-full transition-all duration-700 ${
+                        stat.pct >= 70
+                          ? 'bg-emerald-500'
+                          : stat.pct >= 50
+                          ? 'bg-amber-500'
+                          : 'bg-rose-500'
+                      }`}
+                      style={{ width: `${stat.pct}%` }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
 
         {/* Actions */}
-        <div className="p-6 pt-0 flex gap-3">
-          <button onClick={onRestart} className="btn-secondary flex-1 flex items-center gap-2">
-            <RotateCcw className="w-4 h-4" /> Nueva sesión
+        <div className="p-6 sm:p-7 pt-0 flex flex-col sm:flex-row gap-3">
+          <button
+            onClick={onRestart}
+            className="btn-secondary flex-1 flex items-center justify-center gap-2 py-3 rounded-xl"
+          >
+            <RotateCcw className="w-4 h-4" />
+            Nueva sesión adaptativa
           </button>
-          <button onClick={onGoToDashboard} className="btn-primary flex-1 flex items-center gap-2">
-            <BarChart2 className="w-4 h-4" /> Ver dashboard
+          <button
+            onClick={onGoToDashboard}
+            className="btn-primary flex-1 flex items-center justify-center gap-2 py-3 rounded-xl shadow-md shadow-brand-600/20"
+          >
+            <BarChart2 className="w-4 h-4" />
+            Ver mi perfil de riesgo
           </button>
         </div>
       </div>
@@ -136,7 +236,7 @@ function SessionResults({ answers, onRestart, onGoToDashboard }: {
   );
 }
 
-// ── Main Training Page ────────────────────────────────────────
+// ── Página Principal de Entrenamiento ─────────────────────────
 export default function EntrenamientoPage() {
   const router = useRouter();
   const supabase = createClient();
@@ -153,100 +253,144 @@ export default function EntrenamientoPage() {
   const [isComplete, setIsComplete] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
 
-  // Initialize session
   const initSession = useCallback(async () => {
     setLoading(true);
     setError(null);
 
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { router.push('/login'); return; }
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) {
+        router.push('/login');
+        return;
+      }
       setUserId(user.id);
 
-      // Check if this is first session (show onboarding)
-      const { count } = await supabase
+      // Verificar si es su primera sesión para mostrar el onboarding
+      const { count: sessionCount } = await supabase
         .from('sesiones')
         .select('id', { count: 'exact', head: true })
         .eq('usuario_id', user.id);
 
-      if (count === 0) setShowOnboarding(true);
-
-      // Fetch user's category metrics for adaptive algorithm
-      // (join directo respuestas + escenarios; sustituye a view metricas_usuario_categoria)
-      const { data: respuestasCat } = await supabase
-        .from('respuestas')
-        .select('es_correcta, tiempo_respuesta_ms, escenarios:escenario_id (categoria)')
-        .eq('usuario_id', user.id);
-
-      type RJoin = {
-        es_correcta: boolean;
-        tiempo_respuesta_ms: number;
-        escenarios: { categoria: Categoria } | null;
-      };
-
-      const byCat = new Map<
-        Categoria,
-        { total: number; correctas: number; tiempoAcumMs: number }
-      >();
-
-      for (const r of (respuestasCat as RJoin[] | null) ?? []) {
-        const cat = r.escenarios?.categoria;
-        if (!cat) continue;
-        const prev = byCat.get(cat) ?? { total: 0, correctas: 0, tiempoAcumMs: 0 };
-        prev.total += 1;
-        if (r.es_correcta) prev.correctas += 1;
-        prev.tiempoAcumMs += r.tiempo_respuesta_ms ?? 0;
-        byCat.set(cat, prev);
+      if (sessionCount === 0) {
+        setShowOnboarding(true);
       }
 
-      const metricasForEngine: MetricasCategoria[] = Array.from(byCat.entries()).map(
+      // Obtener respuestas previas con categorías y vectores para el motor adaptativo 2D
+      const { data: historialRaw } = await supabase
+        .from('respuestas')
+        .select(
+          `
+          es_correcta,
+          escenario_id,
+          escenarios:escenario_id (categoria, vector_psicologico)
+        `
+        )
+        .eq('usuario_id', user.id)
+        .order('created_at', { ascending: false });
+
+      type JoinHistorial = {
+        es_correcta: boolean;
+        escenario_id: string;
+        escenarios: {
+          categoria: Categoria;
+          vector_psicologico: VectorPsicologico;
+        } | null;
+      };
+
+      const historial = (historialRaw as JoinHistorial[] | null) ?? [];
+
+      // Métricas por categoría
+      const byCat = new Map<Categoria, { total: number; correctas: number }>();
+      const byVec = new Map<VectorPsicologico, { total: number; correctas: number }>();
+      const historialParaStreaks: Array<{
+        categoria: Categoria;
+        vector_psicologico: VectorPsicologico;
+        es_correcta: boolean;
+      }> = [];
+
+      for (const h of historial) {
+        if (!h.escenarios) continue;
+        const { categoria, vector_psicologico } = h.escenarios;
+
+        historialParaStreaks.push({
+          categoria,
+          vector_psicologico,
+          es_correcta: h.es_correcta,
+        });
+
+        // Agrupar categoría
+        const prevC = byCat.get(categoria) ?? { total: 0, correctas: 0 };
+        prevC.total += 1;
+        if (h.es_correcta) prevC.correctas += 1;
+        byCat.set(categoria, prevC);
+
+        // Agrupar vector
+        const prevV = byVec.get(vector_psicologico) ?? { total: 0, correctas: 0 };
+        prevV.total += 1;
+        if (h.es_correcta) prevV.correctas += 1;
+        byVec.set(vector_psicologico, prevV);
+      }
+
+      const metricasCat: MetricasCategoria[] = Array.from(byCat.entries()).map(
         ([categoria, m]) => ({
           categoria,
           total: m.total,
           correctas: m.correctas,
           precision_pct:
             m.total > 0 ? Math.round((m.correctas / m.total) * 1000) / 10 : 0,
-          tiempo_promedio_ms:
-            m.total > 0 ? Math.round(m.tiempoAcumMs / m.total) : 0,
+          tiempo_promedio_ms: 0,
         })
       );
 
-      // Fetch recent scenario IDs to avoid repetition
-      const { data: recentRespuestas } = await supabase
-        .from('respuestas')
-        .select('escenario_id')
-        .eq('usuario_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(20);
+      const metricasVec: MetricasVector[] = Array.from(byVec.entries()).map(
+        ([vector, m]) => ({
+          vector,
+          total: m.total,
+          correctas: m.correctas,
+          precision_pct:
+            m.total > 0 ? Math.round((m.correctas / m.total) * 1000) / 10 : 0,
+        })
+      );
 
-      const recentIds = recentRespuestas?.map((r) => r.escenario_id) ?? [];
-
-      // Fetch all active scenarios
-      const { data: allScenarios, error: scenError } = await supabase
+      // Obtener todos los escenarios activos del banco real
+      const { data: allScenariosRaw, error: scenErr } = await supabase
         .from('escenarios')
         .select('*')
         .eq('activo', true);
 
-      if (scenError) throw scenError;
-      if (!allScenarios || allScenarios.length < 4) {
-        setError('No hay suficientes escenarios disponibles. Contacta al administrador.');
+      if (scenErr) throw scenErr;
+      if (!allScenariosRaw || allScenariosRaw.length < 5) {
+        setError('No hay suficientes escenarios reales en la base de datos.');
         return;
       }
 
-      // Build adaptive config and select scenarios
-      const config = buildAdaptiveConfig(metricasForEngine, SCENARIOS_PER_SESSION);
-      const selected = selectScenarios(allScenarios as Escenario[], config, recentIds);
+      const allScenarios = allScenariosRaw as Escenario[];
 
-      // Create session in DB
+      // Escenarios recientes para evitar repetición inmediata
+      const recentIds = historial.slice(0, 20).map((h) => h.escenario_id);
+
+      // Construir configuración adaptativa bidimensional y seleccionar
+      const config2D = buildAdaptiveConfig2D(
+        metricasCat,
+        metricasVec,
+        SCENARIOS_PER_SESSION,
+        historialParaStreaks
+      );
+
+      const selected = selectScenarios2D(allScenarios, config2D, recentIds);
+
+      // Crear registro de sesión en la base de datos
       const newSesionId = uuidv4();
-      const { error: sesionError } = await supabase.from('sesiones').insert({
+      const { error: sessionInsertErr } = await supabase.from('sesiones').insert({
         id: newSesionId,
         usuario_id: user.id,
         total_escenarios: selected.length,
         correctas: 0,
       });
 
-      if (sesionError) throw sesionError;
+      if (sessionInsertErr) throw sessionInsertErr;
 
       setScenarios(selected);
       setSesionId(newSesionId);
@@ -254,17 +398,19 @@ export default function EntrenamientoPage() {
       setAnswers([]);
       setIsComplete(false);
 
-      if (count !== 0) {
+      if (sessionCount !== 0) {
         timer.start();
       }
     } catch (err: any) {
-      setError(err.message ?? 'Error al inicializar la sesión');
+      setError(err.message ?? 'Error al inicializar sesión');
     } finally {
       setLoading(false);
     }
   }, []);
 
-  useEffect(() => { initSession(); }, []);
+  useEffect(() => {
+    initSession();
+  }, [initSession]);
 
   const handleOnboardingStart = () => {
     setShowOnboarding(false);
@@ -285,7 +431,7 @@ export default function EntrenamientoPage() {
       tiempo_respuesta_ms: tiempoMs,
     };
 
-    // Save to DB
+    // Guardar respuesta en Supabase
     await supabase.from('respuestas').insert({
       sesion_id: sesionId,
       escenario_id: escenario.id,
@@ -302,50 +448,47 @@ export default function EntrenamientoPage() {
 
   const handleNext = async () => {
     setPendingAnswer(null);
-    const nextIndex = currentIndex + 1;
 
-    if (nextIndex >= scenarios.length) {
-      // Session complete — finalize in DB
-      const correctas = [...answers].filter((a) => a.es_correcta).length +
-        (pendingAnswer?.es_correcta ? 1 : 0);
-
+    if (currentIndex + 1 >= scenarios.length) {
+      // Sesión completa
+      const totalCorrectas = answers.filter((a) => a.es_correcta).length;
       if (sesionId) {
         await supabase
           .from('sesiones')
           .update({
             finalizada_en: new Date().toISOString(),
-            correctas,
+            correctas: totalCorrectas,
           })
           .eq('id', sesionId);
       }
       setIsComplete(true);
     } else {
-      setCurrentIndex(nextIndex);
+      setCurrentIndex((prev) => prev + 1);
       timer.start();
     }
   };
 
-  // ── Render ───────────────────────────────────────────────────
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-64 gap-3">
-        <Loader2 className="w-8 h-8 text-brand-500 animate-spin" />
-        <p className="text-surface-500 text-sm">Preparando tu sesión adaptativa...</p>
+      <div className="min-h-[60vh] flex flex-col items-center justify-center text-center p-4">
+        <div className="w-12 h-12 border-4 border-brand-200 border-t-brand-600 rounded-full animate-spin mb-4" />
+        <p className="font-bold text-surface-800 text-base">
+          Calibrando motor adaptativo bidimensional...
+        </p>
+        <p className="text-xs text-surface-400 mt-1">
+          Analizando histórico de fallos y seleccionando casos reales documentados.
+        </p>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="max-w-md mx-auto mt-8">
-        <div className="card p-6 text-center">
-          <AlertCircle className="w-10 h-10 text-danger-500 mx-auto mb-3" />
-          <h3 className="font-semibold text-surface-800">Error al cargar</h3>
-          <p className="text-sm text-surface-500 mt-1">{error}</p>
-          <button onClick={initSession} className="btn-primary mt-4">
-            Intentar de nuevo
-          </button>
-        </div>
+      <div className="max-w-md mx-auto my-12 p-6 card text-center space-y-4">
+        <p className="text-sm font-bold text-rose-600">{error}</p>
+        <button onClick={initSession} className="btn-primary btn-sm">
+          Reintentar
+        </button>
       </div>
     );
   }
@@ -354,54 +497,48 @@ export default function EntrenamientoPage() {
     return (
       <SessionResults
         answers={answers}
-        onRestart={() => {
-          setIsComplete(false);
-          initSession();
-        }}
+        onRestart={initSession}
         onGoToDashboard={() => router.push('/dashboard')}
       />
     );
   }
 
   const currentScenario = scenarios[currentIndex];
-  const correctasHasta = answers.filter((a) => a.es_correcta).length;
 
   return (
-    <div className="max-w-3xl mx-auto">
+    <div className="max-w-3xl mx-auto space-y-6 animate-fade-in pb-12">
+      {/* Onboarding para nuevos usuarios */}
       {showOnboarding && <OnboardingModal onStart={handleOnboardingStart} />}
 
-      {/* Session header */}
-      <div className="mb-6">
-        <div className="flex items-center justify-between mb-3">
-          <div>
-            <h1 className="text-xl font-bold text-surface-900">Sesión de entrenamiento</h1>
-            <p className="text-sm text-surface-400">Motor adaptativo activo</p>
-          </div>
+      {/* Barra de progreso y cronómetro */}
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex-1">
+          <ProgressBar
+            current={currentIndex + 1}
+            total={scenarios.length}
+            correctas={answers.filter((a) => a.es_correcta).length}
+          />
+        </div>
+        <div className="flex-shrink-0">
           <TimerDisplay elapsed={timer.elapsed} />
         </div>
-        <ProgressBar
-          current={currentIndex}
-          total={scenarios.length}
-          correctas={correctasHasta}
-        />
       </div>
 
-      {/* Scenario card */}
+      {/* Tarjeta del Escenario Actual */}
       {currentScenario && (
         <ScenarioCard
-          key={currentScenario.id}
           escenario={currentScenario}
           onAnswer={handleAnswer}
-          isAnswering={!!pendingAnswer}
+          isAnswering={pendingAnswer !== null}
         />
       )}
 
-      {/* Result modal */}
+      {/* Modal de Resultado y Retroalimentación con Fuente Real */}
       {pendingAnswer && (
         <ResultModal
           answer={pendingAnswer}
           onNext={handleNext}
-          isLastScenario={currentIndex === scenarios.length - 1}
+          isLastScenario={currentIndex + 1 >= scenarios.length}
         />
       )}
     </div>

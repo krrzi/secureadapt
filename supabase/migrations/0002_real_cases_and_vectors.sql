@@ -1,161 +1,76 @@
 -- ============================================================
--- SecureAdapt — Esquema completo + seed de casos reales documentados + RLS + views
+-- SecureAdapt v2 — Migración a Casos Reales Documentados + 2D Engine
+-- Incorpora:
+-- 1. Ampliación de categorias: 'phishing','vishing','smishing','pretexting','baiting'
+-- 2. Nuevo campo vector_psicologico: 'urgencia','autoridad','confianza','recompensa','amenaza','curiosidad'
+-- 3. Campos fuente y fuente_url (con obligatoriedad de fuente para es_ataque = true)
+-- 4. Seed no destructivo e idempotente con 31 casos reales documentados (ON CONFLICT DO UPDATE)
 -- ============================================================
 
--- ──────────────────────────────────────────────────────────
--- 1. TABLAS
--- ──────────────────────────────────────────────────────────
+-- ── 1. MODIFICAR TABLA ESCENARIOS ────────────────────────────
 
-create table if not exists public.profiles (
-    id          uuid primary key default gen_random_uuid(),
-    user_id     uuid not null references auth.users(id) on delete cascade unique,
-    rol         text not null default 'usuario' check (rol in ('usuario', 'admin')),
-    nombre      text,
-    email       text,
-    created_at  timestamptz not null default now()
-);
+-- Eliminar la restricción de categoría anterior para permitir 'smishing'
+alter table public.escenarios drop constraint if exists escenarios_categoria_check;
+alter table public.escenarios add constraint escenarios_categoria_check 
+  check (categoria in ('phishing', 'vishing', 'smishing', 'pretexting', 'baiting'));
 
-create table if not exists public.escenarios (
-    id                 uuid primary key default gen_random_uuid(),
-    titulo             text not null,
-    contenido          text not null,
-    categoria          text not null check (categoria in ('phishing','vishing','smishing','pretexting','baiting')),
-    vector_psicologico text not null default 'urgencia' check (vector_psicologico in ('urgencia','autoridad','confianza','recompensa','amenaza','curiosidad')),
-    dificultad         text not null check (dificultad in ('bajo','medio','alto')),
-    es_ataque          boolean not null,
-    explicacion        text not null,
-    fuente             text,
-    fuente_url         text,
-    activo             boolean not null default true,
-    created_at         timestamptz not null default now(),
-    constraint escenarios_fuente_ataque_check check (es_ataque = false or (fuente is not null and length(trim(fuente)) > 0))
-);
+-- Agregar columna vector_psicologico si no existe
+do $$
+begin
+  if not exists (
+    select 1 from information_schema.columns 
+    where table_schema = 'public' and table_name = 'escenarios' and column_name = 'vector_psicologico'
+  ) then
+    alter table public.escenarios add column vector_psicologico text not null default 'urgencia'
+      check (vector_psicologico in ('urgencia', 'autoridad', 'confianza', 'recompensa', 'amenaza', 'curiosidad'));
+  end if;
+end $$;
 
-create table if not exists public.sesiones (
-    id               uuid primary key default gen_random_uuid(),
-    usuario_id       uuid not null references auth.users(id) on delete cascade,
-    iniciada_en      timestamptz not null default now(),
-    finalizada_en    timestamptz,
-    total_escenarios int not null default 0,
-    correctas        int not null default 0
-);
+-- Agregar columnas fuente y fuente_url si no existen
+do $$
+begin
+  if not exists (
+    select 1 from information_schema.columns 
+    where table_schema = 'public' and table_name = 'escenarios' and column_name = 'fuente'
+  ) then
+    alter table public.escenarios add column fuente text;
+  end if;
 
-create table if not exists public.respuestas (
-    id                 uuid primary key default gen_random_uuid(),
-    sesion_id          uuid not null references public.sesiones(id) on delete cascade,
-    escenario_id       uuid not null references public.escenarios(id) on delete cascade,
-    usuario_id         uuid not null references auth.users(id) on delete cascade,
-    respuesta_usuario  boolean not null,
-    respuesta_correcta boolean not null,
-    es_correcta        boolean not null,
-    tiempo_respuesta_ms int not null,
-    created_at         timestamptz not null default now()
-);
+  if not exists (
+    select 1 from information_schema.columns 
+    where table_schema = 'public' and table_name = 'escenarios' and column_name = 'fuente_url'
+  ) then
+    alter table public.escenarios add column fuente_url text;
+  end if;
+end $$;
 
-create index if not exists idx_respuestas_usuario_created on public.respuestas(usuario_id, created_at desc);
-create index if not exists idx_sesiones_usuario on public.sesiones(usuario_id, iniciada_en desc);
+-- Preservar datos previos: desactivar escenarios antiguos sin fuente para que el motor
+-- use los 31 casos reales, sin romper claves foráneas de respuestas existentes
+update public.escenarios 
+set activo = false 
+where fuente is null or length(trim(fuente)) = 0;
+
+-- Asegurar que filas previas de ataque cumplan la restricción antes de activarla
+update public.escenarios 
+set fuente = 'Registro histórico previo a v2' 
+where es_ataque = true and (fuente is null or length(trim(fuente)) = 0);
+
+-- Restricción de obligatoriedad de fuente para escenarios de ataque
+alter table public.escenarios drop constraint if exists escenarios_fuente_ataque_check;
+alter table public.escenarios add constraint escenarios_fuente_ataque_check
+  check (es_ataque = false or (fuente is not null and length(trim(fuente)) > 0));
+
+-- Restricción UNIQUE en titulo para garantizar idempotencia en el seed
+alter table public.escenarios drop constraint if exists escenarios_titulo_unique;
+alter table public.escenarios add constraint escenarios_titulo_unique unique (titulo);
+
+-- Índices para optimizar el motor adaptativo 2D
 create index if not exists idx_escenarios_cat_vec on public.escenarios(categoria, vector_psicologico, activo);
 
--- ──────────────────────────────────────────────────────────
--- 2. ROW LEVEL SECURITY
--- ──────────────────────────────────────────────────────────
-
-alter table public.profiles   enable row level security;
-alter table public.escenarios enable row level security;
-alter table public.sesiones   enable row level security;
-alter table public.respuestas enable row level security;
-
-create or replace function public.is_admin() returns boolean
-language sql stable security definer set search_path = public
-as $$
-  select exists (
-    select 1 from public.profiles
-    where user_id = auth.uid() and rol = 'admin'
-  );
-$$;
-
--- profiles
-create policy "profiles_select_own_or_admin"
-  on public.profiles for select
-  using ( auth.uid() = user_id or public.is_admin() );
-
-create policy "profiles_update_own_or_admin"
-  on public.profiles for update
-  using ( auth.uid() = user_id or public.is_admin() );
-
-create policy "profiles_insert_self"
-  on public.profiles for insert
-  with check ( auth.uid() = user_id );
-
--- escenarios
-create policy "escenarios_select_regular_users_only_active"
-  on public.escenarios for select
-  using ( public.is_admin() or activo = true );
-
-create policy "escenarios_insert_admin_only"
-  on public.escenarios for insert
-  with check ( public.is_admin() );
-
-create policy "escenarios_update_admin_only"
-  on public.escenarios for update
-  using ( public.is_admin() );
-
-create policy "escenarios_delete_admin_only"
-  on public.escenarios for delete
-  using ( public.is_admin() );
-
--- sesiones
-create policy "sesiones_select_own_or_admin"
-  on public.sesiones for select
-  using ( auth.uid() = usuario_id or public.is_admin() );
-
-create policy "sesiones_insert_own"
-  on public.sesiones for insert
-  with check ( auth.uid() = usuario_id );
-
-create policy "sesiones_update_own"
-  on public.sesiones for update
-  using ( auth.uid() = usuario_id );
-
--- respuestas
-create policy "respuestas_select_own_or_admin"
-  on public.respuestas for select
-  using ( auth.uid() = usuario_id or public.is_admin() );
-
-create policy "respuestas_insert_own"
-  on public.respuestas for insert
-  with check ( auth.uid() = usuario_id );
-
--- ──────────────────────────────────────────────────────────
--- 3. TRIGGER: auto-crear profile
--- ──────────────────────────────────────────────────────────
-
-create or replace function public.handle_new_user() returns trigger
-language plpgsql security definer set search_path = public
-as $$
-begin
-  insert into public.profiles (user_id, rol, nombre, email)
-  values (
-    new.id,
-    'usuario',
-    coalesce(new.raw_user_meta_data->>'nombre', new.email),
-    new.email
-  );
-  return new;
-end;
-$$;
-
-drop trigger if exists on_auth_user_created on auth.users;
-create trigger on_auth_user_created
-  after insert on auth.users
-  for each row execute function public.handle_new_user();
-
--- ──────────────────────────────────────────────────────────
--- 4. VISTAS ANALÍTICAS
--- ──────────────────────────────────────────────────────────
+-- ── 2. ACTUALIZAR VISTAS PARA ANALÍTICA ────────────────────────
 
 create or replace view public.metricas_usuario_categoria
-security_invoker as
+with (security_invoker = true) as
 select
   r.usuario_id,
   e.categoria,
@@ -169,7 +84,7 @@ where ( r.usuario_id = auth.uid() or public.is_admin() )
 group by 1, 2;
 
 create or replace view public.metricas_usuario_vector
-security_invoker as
+with (security_invoker = true) as
 select
   r.usuario_id,
   e.vector_psicologico,
@@ -180,29 +95,25 @@ from public.respuestas r
 join public.escenarios e on e.id = r.escenario_id
 where ( r.usuario_id = auth.uid() or public.is_admin() )
 group by 1, 2;
-
-create or replace view public.sesiones_con_metricas
-security_invoker as
-select
-  s.id,
-  s.usuario_id,
-  s.iniciada_en,
-  s.finalizada_en,
-  s.total_escenarios,
-  s.correctas,
-  round(100.0 * s.correctas::numeric / nullif(s.total_escenarios,0), 1)  as precision_pct,
-  extract(epoch from (s.finalizada_en - s.iniciada_en))::int             as duracion_segundos
-from public.sesiones s
-where ( s.usuario_id = auth.uid() or public.is_admin() );
-
--- ──────────────────────────────────────────────────────────
--- 5. SEED — 31 ESCENARIOS REALES DOCUMENTADOS
--- ──────────────────────────────────────────────────────────
+-- ── 3. SEED DE LOS 31 CASOS REALES (IDEMPOTENTE CON ON CONFLICT) ──
 
 insert into public.escenarios (
-  titulo, contenido, categoria, vector_psicologico, dificultad, es_ataque, explicacion, fuente, fuente_url, activo
+  titulo,
+  contenido,
+  categoria,
+  vector_psicologico,
+  dificultad,
+  es_ataque,
+  explicacion,
+  fuente,
+  fuente_url,
+  activo
 ) values
--- PHISHING
+
+-- ═════════════════════════════════════════════════════════════
+-- PHISHING (9 casos reales documentados)
+-- ═════════════════════════════════════════════════════════════
+
 (
   'Verificación urgente de cuenta por riesgo de suspensión',
   'De: Centro de Seguridad Global <security-alert@service-verify-id9.com>
@@ -228,6 +139,7 @@ Si no valida su identidad antes del plazo fijado, perderá el acceso a todos sus
   'https://apwg.org/trendsreports/',
   true
 ),
+
 (
   'Notificación de caducidad inminente de contraseña corporativa',
   'De: Mesa de Ayuda TI <soporte-ti@empresa-identity-auth.net>
@@ -252,6 +164,7 @@ Nota: El personal de TI no puede renovar su clave por usted.',
   'https://www.proofpoint.com/threat-insight',
   true
 ),
+
 (
   'Plan de Reclutamiento 2011 (Caso RSA SecurID)',
   'De: Beyond Careers HR <webmaster@beyond.com>
@@ -274,6 +187,7 @@ Quedo atento a tus comentarios para consolidar el reporte con gerencia.',
   'https://threatpost.com/anatomy-of-the-rsa-breach/75084/',
   true
 ),
+
 (
   'Actualización de datos bancarios de proveedor de hardware (Caso BEC)',
   'De: Finanzas Quanta Computer <accounting@quanta-computer-tw.com>
@@ -299,6 +213,7 @@ Adjuntamos copia del contrato marco sellado y la adenda correspondiente para su 
   'https://www.justice.gov/usao-sdny/pr/evaldas-rimasauskas-sentenced-5-years-prison-wire-fraud',
   true
 ),
+
 (
   'Alerta de bloqueo preventivo de tarjeta Credimás (BCP Perú)',
   'De: Notificaciones BCP <alerta-seguridad@viabcp-validacion-pe.com>
@@ -323,6 +238,7 @@ Banco de Crédito del BCP - Siempre contigo.',
   'https://www.welivesecurity.com/la-es/2019/04/campana-de-phishing-suplanta-identidad-de-banco-peruano/',
   true
 ),
+
 (
   'Subsidio económico extraordinario disponible para cobro',
   'De: Plataforma Única Digital del Estado <notificaciones@bono-extraordinario-gob.org>
@@ -347,6 +263,7 @@ Plazo límite para registrarse: 48 horas tras la recepción del presente aviso.'
   'https://rpp.pe/economia/economia/ciberdelincuencia-cuales-son-las-modalidades-de-estafa-mas-frecuentes-en-el-peru-noticia-1485671',
   true
 ),
+
 (
   'Problema de facturación: Tu suscripción de streaming será cancelada hoy',
   'De: Centro de Pagos Streaming <billing@netflix-member-billing-pe.com>
@@ -372,6 +289,7 @@ El equipo de soporte.',
   'https://rpp.pe/tecnologia/innovacion/',
   true
 ),
+
 (
   'Oportunidad de inversión institucional respaldada por IA (Deepfake)',
   'De: Comunicaciones de Inversión Credicorp <presidencia@credicorp-invest-portal.net>
@@ -395,6 +313,7 @@ Cupos limitados a los primeros 200 participantes verificados.',
   'https://www.viabcp.com/seguridad',
   true
 ),
+
 (
   'Resolución de cobranza coactiva y embargo preventivo (SUNAT)',
   'De: Notificaciones SUNAT <notificaciones-coactiva@sunat-gob-pe-resolucion.info>
@@ -419,7 +338,10 @@ http://sunat-gob-pe-resolucion.info/expediente-coactivo/login.php',
   true
 ),
 
--- VISHING
+-- ═════════════════════════════════════════════════════════════
+-- VISHING (5 casos reales documentados)
+-- ═════════════════════════════════════════════════════════════
+
 (
   'Llamada interna de soporte técnico de red privada (Caso Twitter 2020)',
   'Canal: Llamada telefónica (Vishing)
@@ -437,6 +359,7 @@ Para que tu acceso no se bloquee durante la sincronización de las 15:00, necesi
   'https://blog.x.com/en_us/topics/company/2020/an-update-on-our-security-incident',
   true
 ),
+
 (
   'Bombardeo de notificaciones MFA push y mensaje de soporte (Caso Uber)',
   'Canal: MFA Push continuo + Mensaje por WhatsApp
@@ -455,6 +378,7 @@ Inmediatamente recibes un mensaje por WhatsApp desde un número con el logo corp
   'https://www.uber.com/newsroom/security-update/',
   true
 ),
+
 (
   'Solicitud telefónica de restablecimiento de token MFA (Caso MGM Resorts)',
   'Canal: Llamada a la Mesa de Ayuda de TI (Vishing Inverso)
@@ -471,6 +395,7 @@ El atacante llama al centro de atención a empleados de la empresa:
   'https://sec.okta.com/articles/2023/08/cross-tenant-impersonation',
   true
 ),
+
 (
   'Suplantación ante la mesa de ayuda del proveedor de TI (Caso Caesars)',
   'Canal: Llamada telefónica de ingeniería social
@@ -486,6 +411,7 @@ Objetivo: Proveedor externo de servicios gestionados de TI (MSP)
   'https://www.sec.gov/edgar/searchedgar/companysearch',
   true
 ),
+
 (
   'Llamada de detección de infecciones críticas en sistema Windows',
   'Canal: Llamada telefónica a línea fija / celular
@@ -504,7 +430,10 @@ Para aislar la amenaza y limpiar su disco duro antes de que sus cuentas bancaria
   true
 ),
 
--- SMISHING
+-- ═════════════════════════════════════════════════════════════
+-- SMISHING (3 casos reales documentados)
+-- ═════════════════════════════════════════════════════════════
+
 (
   'SMS de expiración de sesión Okta corporativa (Campaña 0ktapus)',
   'Canal: SMS al teléfono móvil corporativo
@@ -520,6 +449,7 @@ SMS: "Twilio IT Notice: Su sesión de Okta SSO ha caducado por motivos de seguri
   'https://www.twilio.com/en-us/blog/incident-update-2022',
   true
 ),
+
 (
   'SMS: Imposibilidad de entrega de paquete por dirección incompleta',
   'Canal: SMS en teléfono móvil
@@ -535,6 +465,7 @@ SMS: "[SERPOST PERÚ]: Su paquete con número de seguimiento PE-748921 no pudo s
   'https://apwg.org/',
   true
 ),
+
 (
   'Alerta BCP SMS: Se ha detectado una compra inusual por S/. 1,850',
   'Canal: SMS en teléfono móvil
@@ -551,7 +482,10 @@ SMS: "BCP: Se registró un intento de compra por S/. 1,850.00 en MercadoLibre co
   true
 ),
 
--- PRETEXTING
+-- ═════════════════════════════════════════════════════════════
+-- PRETEXTING (4 casos reales documentados)
+-- ═════════════════════════════════════════════════════════════
+
 (
   'Contacto de consultor de talento corroborando organigrama interno',
   'Canal: Mensaje directo en LinkedIn / Red profesional
@@ -569,6 +503,7 @@ Antes de coordinar una llamada formal, ¿me podrías confirmar si actualmente le
   'https://www.group-ib.com/blog/scattered-spider/',
   true
 ),
+
 (
   'Validación crediticia presencial con información biométrica filtrada',
   'Canal: Interacción en módulo de atención / llamada de seguimiento
@@ -586,6 +521,7 @@ Un sujeto se presenta argumentando ser familiar autorizado de un cliente bancari
   'https://elbuho.pe/',
   true
 ),
+
 (
   'Actualización del número de cuenta para depósito de gratificación',
   'De: Recursos Humanos - Nóminas <recursos-humanos@rrhh-portal-gestion.com>
@@ -606,6 +542,7 @@ Para asegurar que su abono se efectúe a primera hora de mañana sin retrasos, p
   'https://www.ic3.gov/Media/PDF/AnnualReport/2023_IC3Report.pdf',
   true
 ),
+
 (
   'Solicitud de confirmación de postulación en portal de empleo',
   'De: Beyond Careers Support <webmaster@beyond.com>
@@ -627,7 +564,10 @@ Para validar que sus datos laborales coincidan con los requerimientos de la vaca
   true
 ),
 
--- BAITING
+-- ═════════════════════════════════════════════════════════════
+-- BAITING (4 casos reales documentados)
+-- ═════════════════════════════════════════════════════════════
+
 (
   'Hoja de cálculo filtrada con sueldos y planes de contratación',
   'Ubicación: Carpeta de spam / Correo no deseado
@@ -645,6 +585,7 @@ Por la intensa curiosidad de conocer la información salarial confidencial de la
   'https://blogs.rsa.com/',
   true
 ),
+
 (
   'Memoria USB encontrada con etiqueta "Auditoría Salarial Q3 - Confidencial"',
   'Ubicación: Sala de descanso / Cafetería de la oficina
@@ -662,6 +603,7 @@ Al conectarla a tu computadora de trabajo para ver de quién es y revisar los ar
   'https://apwg.org/',
   true
 ),
+
 (
   'Activador y crack de software de diseño profesional gratuito',
   'Ubicación: Foro de descargas / Anuncio patrocinado en buscador
@@ -679,6 +621,7 @@ Instrucciones: Desactiva tu antivirus durante 5 minutos para que el generador de
   'https://securelist.com/',
   true
 ),
+
 (
   'Celebración de aniversario: Gana una de las 500 laptops sorteándose hoy',
   'Canal: Publicación viral en redes sociales / WhatsApp
@@ -695,7 +638,10 @@ Solo debes ingresar a la ruleta virtual, responder 3 preguntas sencillas y compa
   true
 ),
 
--- ESCENARIOS LEGÍTIMOS DE CONTROL (es_ataque = false)
+-- ═════════════════════════════════════════════════════════════
+-- ESCENARIOS LEGÍTIMOS DE CONTROL (6 escenarios, es_ataque = false)
+-- ═════════════════════════════════════════════════════════════
+
 (
   'Aviso informativo: Tu tarjeta de débito vencerá el próximo mes',
   'De: Banco de Crédito BCP <notificaciones@viabcp.com>
@@ -720,6 +666,7 @@ Ten en cuenta que:
   'https://www.viabcp.com/seguridad',
   true
 ),
+
 (
   'Boletín mensual de bienestar y actividades de integración',
   'De: Comunicaciones Internas <comunicaciones@miempresa.com>
@@ -743,6 +690,7 @@ No es necesario registrarse previamente. Los esperamos.',
   null,
   true
 ),
+
 (
   'Confirmación de orden de compra y resumen de entrega',
   'De: Tienda Oficial <pedidos@tiendaoficial.pe>
@@ -767,6 +715,7 @@ Puedes consultar el estado del paquete directamente desde la sección "Mis Pedid
   null,
   true
 ),
+
 (
   'Invitación a reunión de seguimiento de proyecto (Google Meet)',
   'De: Andrea Silva (Vía Google Calendar) <calendar-notification@google.com>
@@ -791,6 +740,7 @@ Agenda:
   null,
   true
 ),
+
 (
   'Encuesta anual de clima organizacional y satisfacción laboral',
   'De: Gerencia de Gestión del Talento <talento@corporacion.pe>
@@ -813,6 +763,7 @@ Las respuestas son 100% anónimas y no se requiere registrar correos ni contrase
   null,
   true
 ),
+
 (
   'Coordinación para actualización programada de software corporativo',
   'De: Soporte TI <mesadeayuda@corporativo.pe>
@@ -835,4 +786,15 @@ Recuerda:
   'Guía de Soporte Técnico y Arquitectura Zero Trust (NIST SP 800-63)',
   'https://csrc.nist.gov/',
   true
-);
+)
+
+on conflict (titulo) do update set
+  contenido = excluded.contenido,
+  categoria = excluded.categoria,
+  vector_psicologico = excluded.vector_psicologico,
+  dificultad = excluded.dificultad,
+  es_ataque = excluded.es_ataque,
+  explicacion = excluded.explicacion,
+  fuente = excluded.fuente,
+  fuente_url = excluded.fuente_url,
+  activo = excluded.activo;

@@ -33,28 +33,34 @@ export async function middleware(request: NextRequest) {
 
   const pathname = request.nextUrl.pathname;
 
-  // ── Public routes (no auth needed) ──────────────────────────
-  const publicRoutes = ['/', '/login', '/registro'];
+  // ── Rutas Públicas (acceso libre sin autenticación) ──────────
+  const publicRoutes = ['/', '/login', '/registro', '/metodologia'];
   if (publicRoutes.includes(pathname)) {
-    // If logged in and on auth page, redirect to dashboard
+    // Si el usuario ya está autenticado y visita login/registro, enviar al dashboard
     if (user && (pathname === '/login' || pathname === '/registro')) {
       return NextResponse.redirect(new URL('/dashboard', request.url));
     }
     return supabaseResponse;
   }
 
-  // ── Protected routes: must be logged in ─────────────────────
+  // ── Rutas Protegidas: Requieren sesión iniciada ─────────────
   if (!user) {
-    return NextResponse.redirect(new URL('/login', request.url));
+    const loginUrl = new URL('/login', request.url);
+    loginUrl.searchParams.set('redirectTo', pathname);
+    return NextResponse.redirect(loginUrl);
   }
 
-  // ── Admin routes: must have admin role ──────────────────────
-  if (pathname.startsWith('/admin')) {
+  // ── Rutas de Administración: Requieren rol 'admin' ──────────
+  // Rutas planas: /escenarios y /metricas (sin prefijo de route group /admin en la URL)
+  const adminRoutes = ['/escenarios', '/metricas'];
+  const isAdminRoute = adminRoutes.some((route) => pathname.startsWith(route));
+
+  if (isAdminRoute) {
     const { data: profile } = await supabase
       .from('profiles')
       .select('rol')
       .eq('user_id', user.id)
-      .single();
+      .maybeSingle();
 
     if (!profile || profile.rol !== 'admin') {
       return NextResponse.redirect(new URL('/dashboard', request.url));

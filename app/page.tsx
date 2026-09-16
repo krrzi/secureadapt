@@ -4,6 +4,7 @@ import {
   ShieldAlert,
   Mail,
   Phone,
+  MessageSquare,
   AlertTriangle,
   Package,
   Target,
@@ -14,25 +15,42 @@ import {
   Zap,
   Brain,
   BarChart3,
+  BookOpen,
+  Award,
+  Sparkles,
 } from 'lucide-react';
 
 export default function LandingPage() {
   return (
     <div className="min-h-screen bg-surface-50">
       {/* Navbar público */}
-      <nav className="sticky top-0 z-40 bg-white/80 backdrop-blur border-b border-surface-200">
+      <nav className="sticky top-0 z-40 bg-white/90 backdrop-blur-md border-b border-surface-200">
         <div className="page-container flex items-center justify-between h-16">
           <div className="flex items-center gap-2.5 font-bold text-surface-900">
-            <div className="w-9 h-9 bg-brand-600 rounded-lg flex items-center justify-center">
-              <Shield className="w-5 h-5 text-white" />
+            <div className="w-9 h-9 bg-brand-600 rounded-xl flex items-center justify-center text-white shadow-md shadow-brand-600/20">
+              <Shield className="w-5 h-5" />
             </div>
-            <span>SecureAdapt</span>
+            <div className="flex flex-col">
+              <span className="font-black text-surface-900 text-base leading-none">
+                SecureAdapt
+              </span>
+              <span className="text-[10px] font-semibold text-brand-600 uppercase tracking-wider mt-0.5">
+                Investigación Universitaria
+              </span>
+            </div>
           </div>
+
           <div className="flex items-center gap-2">
-            <Link href="/login" className="btn-ghost">
+            <Link
+              href="/metodologia"
+              className="text-xs sm:text-sm font-semibold text-surface-600 hover:text-brand-600 px-3 py-2 rounded-lg transition-colors hidden sm:block"
+            >
+              Metodología
+            </Link>
+            <Link href="/login" className="btn-ghost text-xs sm:text-sm">
               Iniciar sesión
             </Link>
-            <Link href="/registro" className="btn-primary btn-sm">
+            <Link href="/registro" className="btn-primary btn-sm text-xs sm:text-sm">
               Registrarse
             </Link>
           </div>
@@ -40,246 +58,194 @@ export default function LandingPage() {
       </nav>
 
       {/* Hero */}
-      <section className="relative overflow-hidden">
+      <section className="relative overflow-hidden pt-12 pb-20 lg:py-28">
         <div
           aria-hidden
-          className="absolute inset-0 bg-gradient-to-b from-brand-50 to-transparent -z-0"
+          className="absolute inset-0 bg-gradient-to-b from-brand-50/70 via-transparent to-transparent -z-10"
         />
         <div
           aria-hidden
-          className="absolute top-0 left-1/3 w-[400px] h-[400px] bg-brand-200/30 rounded-full blur-3xl -translate-y-1/3 -z-0"
+          className="absolute top-10 left-1/2 -translate-x-1/2 w-[600px] h-[350px] bg-brand-200/40 rounded-full blur-3xl -z-10"
         />
-        <div className="page-container relative z-10 py-20 lg:py-28">
-          <div className="max-w-3xl mx-auto text-center">
-            <div className="inline-flex items-center gap-2 bg-brand-50 border border-brand-100 text-brand-700 rounded-full px-4 py-1.5 text-xs font-semibold mb-6">
-              <Zap className="w-3.5 h-3.5" />
-              Proyecto universitario · Entrenamiento adaptativo
+
+        <div className="page-container relative z-10 text-center max-w-4xl mx-auto">
+          <div className="inline-flex items-center gap-2 bg-brand-50 border border-brand-200 text-brand-700 rounded-full px-4 py-1.5 text-xs font-bold mb-6 shadow-xs">
+            <Sparkles className="w-3.5 h-3.5 text-brand-600" />
+            Entrenamiento Adaptativo Bidimensional · Basado en Casos Reales
+          </div>
+
+          <h1 className="text-4xl sm:text-5xl lg:text-6xl font-black text-surface-900 tracking-tight leading-[1.15]">
+            Aprende a neutralizar la{' '}
+            <span className="text-gradient">ingeniería social</span>{' '}
+            con incidentes reales documentados.
+          </h1>
+
+          <p className="mt-6 text-base sm:text-lg text-surface-600 max-w-2xl mx-auto leading-relaxed">
+            Plataforma universitaria con motor adaptativo bidimensional (Canal × Vector Psicológico).
+            Entrena contra spear phishing, llamadas de vishing, ataques por SMS y pretexting extraídos
+            de incidentes históricos documentados por APWG, FBI IC3 y la banca peruana.
+          </p>
+
+          <div className="mt-8 flex flex-col sm:flex-row gap-3.5 justify-center items-center">
+            <Link href="/registro" className="btn-primary btn-lg w-full sm:w-auto shadow-lg shadow-brand-600/20">
+              Comenzar entrenamiento gratis <ArrowRight className="w-4 h-4" />
+            </Link>
+            <Link href="/metodologia" className="btn-secondary btn-lg w-full sm:w-auto flex items-center justify-center gap-2">
+              <BookOpen className="w-4 h-4 text-surface-500" />
+              Ver sustento metodológico
+            </Link>
+          </div>
+
+          {/* Key Metric Highlights */}
+          <div className="mt-14 grid grid-cols-2 md:grid-cols-4 gap-4 max-w-3xl mx-auto">
+            <div className="card p-4 text-center border-surface-200">
+              <p className="text-3xl font-black text-brand-600">31+</p>
+              <p className="text-xs font-medium text-surface-500 mt-1">Casos Reales Citados</p>
             </div>
-            <h1 className="text-4xl md:text-5xl lg:text-6xl font-black text-surface-900 tracking-tight">
-              Detecta ataques de{' '}
-              <span className="text-gradient">ingeniería social</span>
-              <br />
-              antes de que te afecten.
-            </h1>
-            <p className="mt-5 text-lg text-surface-600 max-w-2xl mx-auto leading-relaxed">
-              SecureAdapt es una plataforma de entrenamiento personalizada que
-              te enseña a identificar phishing, pretexting, baiting y vishing.
-              Cuanto más entrenas, mejor se adapta a tus puntos débiles.
-            </p>
-            <div className="mt-8 flex flex-col sm:flex-row gap-3 justify-center">
-              <Link href="/registro" className="btn-primary btn-lg">
-                Empezar gratis <ArrowRight className="w-4 h-4" />
-              </Link>
-              <Link href="/login" className="btn-secondary btn-lg">
-                Ya tengo cuenta
-              </Link>
+            <div className="card p-4 text-center border-surface-200">
+              <p className="text-3xl font-black text-brand-600">5</p>
+              <p className="text-xs font-medium text-surface-500 mt-1">Canales de Ataque</p>
             </div>
-            <div className="mt-10 grid grid-cols-3 gap-6 max-w-lg mx-auto">
-              <div className="text-center">
-                <p className="text-2xl font-black text-brand-600">4</p>
-                <p className="text-xs text-surface-500 mt-1">Categorías de ataque</p>
-              </div>
-              <div className="text-center">
-                <p className="text-2xl font-black text-brand-600">20+</p>
-                <p className="text-xs text-surface-500 mt-1">Escenarios reales</p>
-              </div>
-              <div className="text-center">
-                <p className="text-2xl font-black text-brand-600">100%</p>
-                <p className="text-xs text-surface-500 mt-1">Adaptable a ti</p>
-              </div>
+            <div className="card p-4 text-center border-surface-200">
+              <p className="text-3xl font-black text-brand-600">6</p>
+              <p className="text-xs font-medium text-surface-500 mt-1">Vectores Psicológicos</p>
+            </div>
+            <div className="card p-4 text-center border-surface-200">
+              <p className="text-3xl font-black text-brand-600">100%</p>
+              <p className="text-xs font-medium text-surface-500 mt-1">Adaptabilidad 2D</p>
             </div>
           </div>
         </div>
       </section>
 
-      {/* Categorías */}
+      {/* Los 5 Canales */}
       <section className="page-container py-16">
         <div className="text-center max-w-2xl mx-auto mb-12">
-          <h2 className="text-3xl font-black text-surface-900">
-            Los 4 vectores de ataque más comunes
+          <span className="text-xs font-bold text-brand-600 uppercase tracking-wider">
+            Cobertura Completa
+          </span>
+          <h2 className="text-3xl font-black text-surface-900 mt-1">
+            Los 5 Canales de Ataque Evaluados
           </h2>
-          <p className="mt-2 text-surface-500">
-            Entrenarás contra todos los métodos que usan los atacantes reales
-            para engañar a personas en empresas y entornos personales.
+          <p className="text-sm text-surface-500 mt-2">
+            Incidentes extraídos de investigaciones forenses de brechas reales de seguridad.
           </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
+        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
           {[
             {
-              icon: <Mail className="w-6 h-6" />,
-              color: 'text-red-600',
-              bg: 'bg-red-50 border-red-100',
-              iconBg: 'bg-red-100',
+              icon: <Mail className="w-5 h-5 text-red-600" />,
               title: 'Phishing',
-              desc:
-                'Correos y webs falsas que suplantan identidades bancarias, de empresas o contactos conocidos para robar credenciales.',
+              tag: 'Email & Web',
+              desc: 'Suplantación de BCP, fraudes BEC a Google/Facebook y spear phishing de RSA SecurID.',
             },
             {
-              icon: <AlertTriangle className="w-6 h-6" />,
-              color: 'text-orange-600',
-              bg: 'bg-orange-50 border-orange-100',
-              iconBg: 'bg-orange-100',
-              title: 'Pretexting',
-              desc:
-                'Inventar una identidad o un contexto falso por teléfono, mensaje o visita para obtener información interna (autoridad falsa, IT fingido, etc.).',
-            },
-            {
-              icon: <Package className="w-6 h-6" />,
-              color: 'text-yellow-600',
-              bg: 'bg-yellow-50 border-yellow-100',
-              iconBg: 'bg-yellow-100',
-              title: 'Baiting',
-              desc:
-                'El "anzuelo": USBs encontrados en oficinas, archivos gratis, ofertas demasiado buenas para ser verdad, todo con malware dentro.',
-            },
-            {
-              icon: <Phone className="w-6 h-6" />,
-              color: 'text-purple-600',
-              bg: 'bg-purple-50 border-purple-100',
-              iconBg: 'bg-purple-100',
+              icon: <Phone className="w-5 h-5 text-purple-600" />,
               title: 'Vishing',
-              desc:
-                'Phishing por VOZ. Llamadas que suplantan Hacienda, tu banco o soporte técnico para que reveles datos o instales software remoto.',
+              tag: 'Voz & MFA',
+              desc: 'Llamadas de soporte técnico falso en el caso Twitter 2020 y fatiga MFA en Uber 2022.',
             },
-          ].map((c) => (
-            <div
-              key={c.title}
-              className={`card p-6 border ${c.bg} hover:-translate-y-1 transition-all duration-200`}
-            >
-              <div
-                className={`w-12 h-12 rounded-xl ${c.iconBg} ${c.color} flex items-center justify-center mb-4`}
-              >
-                {c.icon}
+            {
+              icon: <MessageSquare className="w-5 h-5 text-blue-600" />,
+              title: 'Smishing',
+              tag: 'SMS Móvil',
+              desc: 'Campaña 0ktapus (Twilio), paquetería fraudulenta y alertas falsas de consumo bancario.',
+            },
+            {
+              icon: <AlertTriangle className="w-5 h-5 text-amber-600" />,
+              title: 'Pretexting',
+              tag: 'Reconocimiento',
+              desc: 'Scattered Spider vía LinkedIn, usurpación con biometría filtrada y pretextos de RRHH.',
+            },
+            {
+              icon: <Package className="w-5 h-5 text-emerald-600" />,
+              title: 'Baiting',
+              tag: 'Cebos',
+              desc: 'Memorias USB en cafeterías corporativas, falsos sorteos en redes y hojas de sueldos.',
+            },
+          ].map((cat) => (
+            <div key={cat.title} className="card p-5 border-surface-200 hover:shadow-md transition-shadow">
+              <div className="w-10 h-10 rounded-xl bg-surface-50 flex items-center justify-center border border-surface-200 mb-3">
+                {cat.icon}
               </div>
-              <h3 className={`text-lg font-bold ${c.color}`}>{c.title}</h3>
-              <p className="text-sm text-surface-600 mt-2 leading-relaxed">
-                {c.desc}
-              </p>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-brand-600 bg-brand-50 px-2 py-0.5 rounded-md">
+                {cat.tag}
+              </span>
+              <h3 className="font-bold text-base text-surface-900 mt-2">{cat.title}</h3>
+              <p className="text-xs text-surface-500 mt-1.5 leading-relaxed">{cat.desc}</p>
             </div>
           ))}
         </div>
       </section>
 
-      {/* Cómo funciona */}
-      <section className="bg-surface-900 text-white py-16">
+      {/* Características Clave de la Investigación */}
+      <section className="bg-white border-y border-surface-200 py-16">
         <div className="page-container">
-          <div className="text-center max-w-2xl mx-auto mb-14">
-            <h2 className="text-3xl font-black">¿Cómo funciona el entrenamiento?</h2>
-            <p className="mt-2 text-surface-400">
-              Sistema adaptativo que aprende de tus errores para hacerte más fuerte.
+          <div className="text-center max-w-2xl mx-auto mb-12">
+            <h2 className="text-3xl font-black text-surface-900">
+              ¿Por qué es una herramienta de investigación real?
+            </h2>
+            <p className="text-sm text-surface-500 mt-2">
+              Diseñada para la experimentación con usuarios reales y publicación científica.
             </p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {[
-              {
-                step: '01',
-                icon: <Target className="w-7 h-7" />,
-                title: 'Analiza y decide',
-                desc:
-                  'Recibes correos, mensajes y guiones de llamada realistas. Tienes que decidir rápidamente si son ataques o mensajes legítimos.',
-              },
-              {
-                step: '02',
-                icon: <Brain className="w-7 h-7" />,
-                title: 'El algoritmo aprende de ti',
-                desc:
-                  'Si fallas 2 veces seguidas en phishing, recibirás más escenarios de esa categoría. Si aciertas 3 veces seguidas, la dificultad sube.',
-              },
-              {
-                step: '03',
-                icon: <BarChart3 className="w-7 h-7" />,
-                title: 'Mejora con datos',
-                desc:
-                  'Consulta tu dashboard: precisión por categoría, evolución por sesión, falsos positivos/negativos y tu racha actual.',
-              },
-            ].map((s) => (
-              <div
-                key={s.step}
-                className="relative bg-surface-800 rounded-2xl p-7 border border-surface-700"
-              >
-                <div className="text-5xl font-black text-brand-400/40 absolute top-4 right-5 select-none">
-                  {s.step}
-                </div>
-                <div className="w-14 h-14 rounded-2xl bg-brand-600/20 text-brand-300 flex items-center justify-center mb-5">
-                  {s.icon}
-                </div>
-                <h3 className="text-xl font-bold">{s.title}</h3>
-                <p className="mt-2 text-sm text-surface-400 leading-relaxed">
-                  {s.desc}
-                </p>
+            <div className="p-6 rounded-2xl bg-surface-50 border border-surface-200 space-y-3">
+              <div className="w-10 h-10 rounded-xl bg-brand-100 text-brand-700 flex items-center justify-center font-bold">
+                <Brain className="w-5 h-5" />
               </div>
-            ))}
-          </div>
+              <h3 className="font-bold text-base text-surface-900">
+                Adaptación Dinámica 2D
+              </h3>
+              <p className="text-xs text-surface-600 leading-relaxed">
+                Si un participante es vulnerable a la <em>urgencia</em> en llamadas telefónicas, el motor
+                intensifica ese cruce exacto y modula la dificultad en tiempo real según sus rachas.
+              </p>
+            </div>
 
-          <div className="mt-12 grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-3xl mx-auto text-surface-300">
-            {[
-              'Cronómetro por escenario para medir tu respuesta',
-              '+20 escenarios semilla en 4 categorías distintas',
-              'Explicación detallada tras cada respuesta',
-              'CRUD de escenarios para el panel administrador',
-              'Registro con Supabase Auth con políticas RLS',
-              'Panel de administración con métricas globales',
-            ].map((f) => (
-              <div key={f} className="flex items-center gap-2 text-sm">
-                <CheckCircle2 className="w-4 h-4 text-success-400 flex-shrink-0" />
-                <span>{f}</span>
+            <div className="p-6 rounded-2xl bg-surface-50 border border-surface-200 space-y-3">
+              <div className="w-10 h-10 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center font-bold">
+                <BookOpen className="w-5 h-5" />
               </div>
-            ))}
-          </div>
-        </div>
-      </section>
+              <h3 className="font-bold text-base text-surface-900">
+                Cero Ficción: Fuentes Reales
+              </h3>
+              <p className="text-xs text-surface-600 leading-relaxed">
+                Cada respuesta acertada o fallida expone la fuente oficial del incidente (comunicados de
+                Twitter, Okta, informes del DOJ o reportes de la PNP en Perú), maximizando el aprendizaje.
+              </p>
+            </div>
 
-      {/* CTA final */}
-      <section className="page-container py-20">
-        <div className="card overflow-hidden">
-          <div className="p-10 lg:p-14 bg-gradient-to-br from-brand-600 to-brand-700 text-white text-center">
-            <Users className="w-12 h-12 text-brand-200 mx-auto mb-5" />
-            <h2 className="text-3xl lg:text-4xl font-black">
-              Empieza a entrenar hoy mismo
-            </h2>
-            <p className="mt-3 max-w-xl mx-auto text-brand-100">
-              Regístrate gratis y completa tu primera sesión de 10 escenarios
-              en menos de 5 minutos. Verás tu progreso desde el primer día.
-            </p>
-            <div className="mt-7 flex flex-col sm:flex-row gap-3 justify-center">
-              <Link
-                href="/registro"
-                className="btn bg-white text-brand-700 hover:bg-brand-50 btn-lg font-semibold"
-              >
-                Crear cuenta gratis <ArrowRight className="w-4 h-4" />
-              </Link>
-              <Link
-                href="/login"
-                className="btn bg-white/10 text-white border border-white/20 hover:bg-white/20 btn-lg font-semibold"
-              >
-                Iniciar sesión
-              </Link>
+            <div className="p-6 rounded-2xl bg-surface-50 border border-surface-200 space-y-3">
+              <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">
+                <Award className="w-5 h-5" />
+              </div>
+              <h3 className="font-bold text-base text-surface-900">
+                Certificación y Métricas
+              </h3>
+              <p className="text-xs text-surface-600 leading-relaxed">
+                Genera constancias universitarias de participación con código criptográfico e informes
+                exhaustivos de falsos positivos vs falsos negativos para el análisis estadístico.
+              </p>
             </div>
           </div>
         </div>
       </section>
 
       {/* Footer */}
-      <footer className="border-t border-surface-200 bg-white">
-        <div className="page-container py-8 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-brand-600 rounded-lg flex items-center justify-center">
-              <Shield className="w-4 h-4 text-white" />
-            </div>
-            <div>
-              <p className="text-sm font-bold text-surface-800">SecureAdapt</p>
-              <p className="text-xs text-surface-400">
-                Proyecto universitario · Entrenamiento adaptativo
-              </p>
-            </div>
-          </div>
-          <div className="text-xs text-surface-400 flex items-center gap-2">
-            <ShieldAlert className="w-3.5 h-3.5" />
-            Hecho con fines educativos. Desplegable en Vercel + Supabase.
-          </div>
-        </div>
+      <footer className="page-container py-10 text-center text-xs text-surface-400 space-y-2">
+        <p>© {new Date().getFullYear()} SecureAdapt · Proyecto de Investigación Universitaria.</p>
+        <p className="space-x-3">
+          <Link href="/metodologia" className="hover:text-surface-600 underline">
+            Metodología Científica
+          </Link>
+          <span>·</span>
+          <Link href="/login" className="hover:text-surface-600 underline">
+            Acceso a la Plataforma
+          </Link>
+        </p>
       </footer>
     </div>
   );
